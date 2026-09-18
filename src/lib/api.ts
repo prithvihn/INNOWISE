@@ -20,6 +20,22 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Something went wrong";
 }
 
+/** Extract the real error message from a failed backend-function call. */
+async function functionError(err: unknown): Promise<Error> {
+  const response = (err as { context?: Response } | null)?.context;
+  if (response && typeof response.text === "function") {
+    try {
+      const body = await response.text();
+      const parsed = JSON.parse(body) as { error?: string; message?: string };
+      const message = parsed.error || parsed.message || "";
+      if (message) return new Error(message);
+    } catch {
+      /* fall through to generic message */
+    }
+  }
+  return new Error(err instanceof Error ? err.message : "Something went wrong");
+}
+
 // ---------------------------------------------------------------------------
 // Profile
 // ---------------------------------------------------------------------------
@@ -371,7 +387,7 @@ export async function analyzeJob(jobId: string): Promise<Record<string, unknown>
   const { data, error } = await supabase.functions.invoke("analyze-job", {
     body: { job_id: jobId },
   });
-  if (error) throw new Error(errorMessage(error));
+  if (error) throw await functionError(error);
   if (data && data.ok === false) throw new Error(data.error || "Analysis failed");
   return data?.analysis || {};
 }
@@ -380,7 +396,7 @@ export async function atsScreen(applicationId: string): Promise<Record<string, u
   const { data, error } = await supabase.functions.invoke("ats-screen", {
     body: { application_id: applicationId },
   });
-  if (error) throw new Error(errorMessage(error));
+  if (error) throw await functionError(error);
   if (data && data.ok === false) throw new Error(data.error || "Screening failed");
   return data;
 }
@@ -403,7 +419,7 @@ export async function interviewStart(applicationId: string): Promise<InterviewSt
   const { data, error } = await supabase.functions.invoke("interview-question", {
     body: { application_id: applicationId },
   });
-  if (error) throw new Error(errorMessage(error));
+  if (error) throw await functionError(error);
   if (data && data.ok === false) throw new Error(data.error || "Interview failed");
   return data as InterviewStepResult;
 }
@@ -416,7 +432,7 @@ export async function interviewAnswer(
   const { data, error } = await supabase.functions.invoke("interview-question", {
     body: { application_id: undefined, interview_id: interviewId, answer_id: answerId, answer },
   });
-  if (error) throw new Error(errorMessage(error));
+  if (error) throw await functionError(error);
   if (data && data.ok === false) throw new Error(data.error || "Interview failed");
   return data as InterviewStepResult;
 }
@@ -425,7 +441,7 @@ export async function hrRecommend(jobId: string): Promise<HrRecommendation> {
   const { data, error } = await supabase.functions.invoke("hr-recommend", {
     body: { job_id: jobId },
   });
-  if (error) throw new Error(errorMessage(error));
+  if (error) throw await functionError(error);
   if (data && data.ok === false) throw new Error(data.error || "Recommendation failed");
   return data as HrRecommendation;
 }

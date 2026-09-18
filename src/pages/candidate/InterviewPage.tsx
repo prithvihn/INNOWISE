@@ -1,13 +1,18 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   BadgeCheck,
+  CameraOff,
   CheckCircle2,
   Loader2,
   MessagesSquare,
+  Mic,
+  MicOff,
   Send,
   Sparkles,
+  Video,
+  VideoOff,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +45,24 @@ interface CompleteState {
   result: Record<string, unknown>;
 }
 
+function mediaErrorMessage(err: unknown): string {
+  if (err instanceof DOMException) {
+    if (err.name === "NotAllowedError") {
+      return "Camera/microphone permission was denied. Allow access in your browser, then reload the page.";
+    }
+    if (err.name === "NotFoundError" || err.name === "OverconstrainedError") {
+      return "No camera or microphone was found on this device.";
+    }
+    if (err.name === "NotReadableError") {
+      return "Your camera or microphone is already in use by another application.";
+    }
+    if (err.name === "SecurityError") {
+      return "Camera access requires a secure (HTTPS) connection.";
+    }
+  }
+  return "Could not access your camera or microphone.";
+}
+
 export default function InterviewPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
@@ -51,6 +74,13 @@ export default function InterviewPage() {
   const [submitting, setSubmitting] = useState(false);
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  // Camera / microphone state
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [micMuted, setMicMuted] = useState(false);
+  const [cameraOff, setCameraOff] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const init = useCallback(async () => {
     if (!applicationId) {
@@ -84,6 +114,71 @@ export default function InterviewPage() {
   useEffect(() => {
     init();
   }, [init]);
+
+  // Request camera + microphone once the interview is available
+  useEffect(() => {
+    if (!applicationId || complete) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMediaError("Camera/microphone access is not supported in this browser.");
+      return;
+    }
+    let cancelled = false;
+    navigator.mediaDevices
+      .getUserMedia({ video: true, audio: true })
+      .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+        setMediaError(null);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(() => {});
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setMediaError(mediaErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationId, complete]);
+
+  // Attach the stream to the video element once it is mounted
+  useEffect(() => {
+    if (question && !complete && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [question, complete]);
+
+  // Stop the media stream when the interview completes or on unmount
+  useEffect(() => {
+    if (complete) {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    return () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, [complete]);
+
+  function toggleMic() {
+    const track = streamRef.current?.getAudioTracks()[0];
+    if (track) {
+      track.enabled = micMuted;
+      setMicMuted(!micMuted);
+    }
+  }
+
+  function toggleCamera() {
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (track) {
+      track.enabled = cameraOff;
+      setCameraOff(!cameraOff);
+    }
+  }
 
   async function submitAnswer(e: FormEvent) {
     e.preventDefault();
@@ -257,6 +352,58 @@ export default function InterviewPage() {
           </span>
         </div>
         <Progress value={(question.index / question.total) * 100} className="h-2" />
+      </div>
+
+      {/* Camera + microphone panel */}
+      <div className="flex flex-col gap-4 sm:flex-row">
+        <div className="relative aspect-video w-full overflow-hidden rounded-xl border bg-black sm:w-72">
+          <video ref={videoRef} muted autoPlay playsInline className="h-full w-full object-cover" />
+          {cameraOff && (
+            <div className="absolute inset-0 flex items-center justify-center bg-muted text-sm text-muted-foreground">
+              <VideoOff className="mr-2 h-4 w-4" /> Camera off
+            </div>
+          )}
+          {mediaError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-muted p-4 text-center text-xs text-muted-foreground">
+              <CameraOff className="mb-1 block h-5 w-5" />
+              Camera unavailable
+            </div>
+          )}
+          <div className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] text-white">
+            {micMuted ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
+            {micMuted ? "Mic muted" : "Mic live"}
+          </div>
+        </div>
+
+        <div className="flex-1 space-y-3">
+          {mediaError ? (
+            <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
+              <span className="flex items-center gap-1.5 font-medium">
+                <CameraOff className="h-4 w-4" /> Camera / microphone unavailable
+              </span>
+              <p className="mt-1 text-xs text-muted-foreground">{mediaError}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                You can still complete the interview by typing your answers below.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant={micMuted ? "secondary" : "outline"} onClick={toggleMic}>
+                  {micMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                  {micMuted ? "Unmute microphone" : "Mute microphone"}
+                </Button>
+                <Button type="button" size="sm" variant={cameraOff ? "secondary" : "outline"} onClick={toggleCamera}>
+                  {cameraOff ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
+                  {cameraOff ? "Turn camera on" : "Turn camera off"}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Your camera and microphone are active for this interview session. Answers are typed below.
+              </p>
+            </>
+          )}
+        </div>
       </div>
 
       {question.lastEval && (

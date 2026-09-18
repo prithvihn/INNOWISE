@@ -318,6 +318,41 @@ Deno.serve(async (req) => {
       });
     }
 
+    // -------- RESUME an existing interview (candidate opened the invitation) --------
+    // interviewStart is called by the candidate page on load; if an interview already
+    // exists (created by HR's invite), return the next unanswered question instead of
+    // treating the request as an answer submission.
+    if (!interview_id) {
+      const { data: answers, error: ansErr } = await supabase
+        .from("interview_answers")
+        .select("id, question, question_type, focus, answer")
+        .eq("interview_id", interview.id)
+        .order("created_at", { ascending: true });
+      if (ansErr) throw ansErr;
+      const rows = (answers || []) as {
+        id: string;
+        question: string;
+        question_type: string;
+        focus: string | null;
+        answer: string | null;
+      }[];
+      const pendingIndex = rows.findIndex((r) => !r.answer || !r.answer.trim());
+      if (pendingIndex >= 0) {
+        const pending = rows[pendingIndex];
+        return json({
+          ok: true,
+          phase: "question",
+          interview_id: interview.id,
+          answer_id: pending.id,
+          question_index: pendingIndex + 1,
+          total: MAX_QUESTIONS,
+          question: pending.question,
+          question_type: pending.question_type,
+          focus: pending.focus || pending.question_type,
+        });
+      }
+    }
+
     // -------- ANSWER mode --------
     if (!answer_id || !answer) throw new Error("answer_id and answer are required");
     if (answer.trim().length < 10) throw new Error("Answer is too short");

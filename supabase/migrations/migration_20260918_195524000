@@ -1,0 +1,36 @@
+-- Remove only verification/test rows created during development (emails under @innowise.test).
+-- Nothing else is touched: every statement is scoped to that email domain or rows owned by it.
+
+delete from public.decisions
+where application_id in (
+  select id from public.applications
+  where candidate_id in (select id from public.candidates where user_id in (select id from auth.users where email like '%@innowise.test'))
+  or job_id in (select id from public.jobs where organization_id in (select organization_id from public.users where email like '%@innowise.test' and role = 'hr'))
+);
+
+delete from public.interview_answers
+where interview_id in (select id from public.interviews where application_id in (select id from public.applications where candidate_id in (select id from public.candidates where user_id in (select id from auth.users where email like '%@innowise.test'))));
+
+delete from public.interviews
+where application_id in (select id from public.applications where candidate_id in (select id from public.candidates where user_id in (select id from auth.users where email like '%@innowise.test')));
+
+delete from public.evaluations
+where application_id in (select id from public.applications where candidate_id in (select id from public.candidates where user_id in (select id from auth.users where email like '%@innowise.test')));
+
+delete from public.applications
+where candidate_id in (select id from public.candidates where user_id in (select id from auth.users where email like '%@innowise.test'));
+
+delete from public.applications
+where job_id in (select id from public.jobs where organization_id in (select organization_id from public.users where email like '%@innowise.test' and role = 'hr'));
+
+delete from public.jobs
+where organization_id in (select organization_id from public.users where email like '%@innowise.test' and role = 'hr');
+
+delete from public.candidates where user_id in (select id from auth.users where email like '%@innowise.test');
+
+delete from public.organizations
+where id in (select organization_id from public.users where email like '%@innowise.test');
+
+delete from public.users where email like '%@innowise.test';
+
+delete from auth.users where email like '%@innowise.test';

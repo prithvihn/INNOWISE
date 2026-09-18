@@ -1,0 +1,132 @@
+create table if not exists public.organizations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.users (
+  id uuid primary key references auth.users(id) on delete cascade,
+  role text not null check (role in ('hr','candidate')),
+  full_name text not null,
+  email text not null,
+  organization_id uuid references public.organizations(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.jobs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  title text not null,
+  description text not null,
+  required_skills text[] not null default '{}',
+  experience_years int not null default 0,
+  responsibilities text not null default '',
+  status text not null default 'open' check (status in ('open','closed')),
+  ai_analysis jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.candidates (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  full_name text not null,
+  email text not null,
+  resume_url text,
+  resume_parsed jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.applications (
+  id uuid primary key default gen_random_uuid(),
+  job_id uuid not null references public.jobs(id) on delete cascade,
+  candidate_id uuid not null references public.candidates(id) on delete cascade,
+  resume_url text,
+  resume_text text,
+  status text not null default 'applied' check (status in ('applied','screening','screening_done','interview_invited','interview_in_progress','interview_done','decided')),
+  ats_status text not null default 'pending' check (ats_status in ('pending','processing','done','failed')),
+  created_at timestamptz not null default now(),
+  unique (job_id, candidate_id)
+);
+
+create table if not exists public.evaluations (
+  id uuid primary key default gen_random_uuid(),
+  application_id uuid not null references public.applications(id) on delete cascade,
+  type text not null check (type in ('ats','interview')),
+  match_score int check (match_score between 0 and 100),
+  matched_skills text[],
+  skill_gaps text[],
+  strengths text[],
+  weaknesses text[],
+  competency_scores jsonb,
+  evidence text,
+  ai_summary text,
+  raw jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.interviews (
+  id uuid primary key default gen_random_uuid(),
+  application_id uuid not null references public.applications(id) on delete cascade,
+  status text not null default 'invited' check (status in ('invited','in_progress','completed')),
+  question_count int not null default 0,
+  created_at timestamptz not null default now(),
+  completed_at timestamptz
+);
+
+create table if not exists public.interview_answers (
+  id uuid primary key default gen_random_uuid(),
+  interview_id uuid not null references public.interviews(id) on delete cascade,
+  question text not null,
+  question_type text not null default 'technical',
+  focus text,
+  answer text,
+  score int check (score between 1 and 10),
+  feedback text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.decisions (
+  id uuid primary key default gen_random_uuid(),
+  application_id uuid not null references public.applications(id) on delete cascade,
+  decision text not null check (decision in ('proceed','hold','reject')),
+  hr_user_id uuid not null references auth.users(id),
+  reason text,
+  ai_recommendation jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_jobs_org on public.jobs(organization_id);
+create index if not exists idx_apps_job on public.applications(job_id);
+create index if not exists idx_apps_candidate on public.applications(candidate_id);
+create index if not exists idx_interviews_app on public.interviews(application_id);
+
+create or replace function public.user_role()
+returns text language sql security definer set search_path = public stable as
+$$ select role from public.users where id = auth.uid() $$;
+
+create or replace function public.is_org_member(org uuid)
+returns boolean language sql security definer set search_path = public stable as
+$$ select exists(select 1 from public.users where id = auth.uid() and organization_id = org) $$;
+
+create or replace function public.is_hr_of_org(org uuid)
+returns boolean language sql security definer set search_path = public stable as
+$$ select exists(select 1 from public.users where id = auth.uid() and role = 'hr' and organization_id = org) $$;
+
+create or replace function public.is_hr_of_job(job uuid)
+returns boolean language sql security definer set search_path = public stable as
+$$ select exists(select 1 from public.jobs j where j.id = job and j.organization_id in (select organization_id from public.users where id = auth.uid() and role = 'hr')) $$;
+
+create or replace function public.hr_can_see_candidate(candidate uuid)
+returns boolean language sql security definer set search_path = public stable as
+$$ select exists(select 1 from public.applications a join public.jobs j on j.id = a.job_id where a.candidate_id = candidate and j.organization_id in (select organization_id from public.users where id = auth.uid() and role = 'hr')) $$;
+
+create or replace function public.can_access_application(app uuid)
+returns boolean language sql security definer set search_path = public stable as
+$$ select
+  exists(select 1 from public.applications a where a.id = app and a.candidate_id in (select id from public.candidates where user_id = auth.uid()))
+  or exists(select 1 from public.applications a join public.jobs j on j.id = a.job_id where a.id = app and j.organization_id in (select organization_id from public.users where id = auth.uid() and role = 'hr'))
+$$;
+
+create or replace function public.can_access_interview(interview uuid)
+returns boolean language sql security definer set search_path = public stable as
+$$ select public.can_access_application(i.application_id) from public.interviews i where i.id = interview $$;

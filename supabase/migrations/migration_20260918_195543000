@@ -1,0 +1,1 @@
+delete from public.organizations where id = '2941d4bb-d9d1-4d3f-bc83-50cb38ad6145' and not exists (select 1 from public.users where organization_id = '2941d4bb-d9d1-4d3f-bc83-50cb38ad6145');

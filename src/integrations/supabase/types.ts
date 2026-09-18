@@ -3360,13 +3360,382 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      applications: {
+        Row: {
+          ats_status: string
+          candidate_id: string
+          created_at: string
+          id: string
+          job_id: string
+          resume_text: string | null
+          resume_url: string | null
+          status: string
+        }
+        Insert: {
+          ats_status?: string
+          candidate_id: string
+          created_at?: string
+          id?: string
+          job_id: string
+          resume_text?: string | null
+          resume_url?: string | null
+          status?: string
+        }
+        Update: {
+          ats_status?: string
+          candidate_id?: string
+          created_at?: string
+          id?: string
+          job_id?: string
+          resume_text?: string | null
+          resume_url?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "applications_candidate_id_fkey"
+            columns: ["candidate_id"]
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "applications_job_id_fkey"
+            columns: ["job_id"]
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      candidates: {
+        Row: {
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          resume_parsed: Json | null
+          resume_url: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          full_name: string
+          id?: string
+          resume_parsed?: Json | null
+          resume_url?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          resume_parsed?: Json | null
+          resume_url?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      decisions: {
+        Row: {
+          ai_recommendation: Json | null
+          application_id: string
+          created_at: string
+          decision: string
+          hr_user_id: string
+          id: string
+          reason: string | null
+        }
+        Insert: {
+          ai_recommendation?: Json | null
+          application_id: string
+          created_at?: string
+          decision: string
+          hr_user_id: string
+          id?: string
+          reason?: string | null
+        }
+        Update: {
+          ai_recommendation?: Json | null
+          application_id?: string
+          created_at?: string
+          decision?: string
+          hr_user_id?: string
+          id?: string
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "decisions_application_id_fkey"
+            columns: ["application_id"]
+            referencedRelation: "applications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      evaluations: {
+        Row: {
+          ai_summary: string | null
+          application_id: string
+          competency_scores: Json | null
+          created_at: string
+          evidence: string | null
+          id: string
+          match_score: number | null
+          matched_skills: string[] | null
+          raw: Json | null
+          skill_gaps: string[] | null
+          strengths: string[] | null
+          type: string
+          weaknesses: string[] | null
+        }
+        Insert: {
+          ai_summary?: string | null
+          application_id: string
+          competency_scores?: Json | null
+          created_at?: string
+          evidence?: string | null
+          id?: string
+          match_score?: number | null
+          matched_skills?: string[] | null
+          raw?: Json | null
+          skill_gaps?: string[] | null
+          strengths?: string[] | null
+          type: string
+          weaknesses?: string[] | null
+        }
+        Update: {
+          ai_summary?: string | null
+          application_id?: string
+          competency_scores?: Json | null
+          created_at?: string
+          evidence?: string | null
+          id?: string
+          match_score?: number | null
+          matched_skills?: string[] | null
+          raw?: Json | null
+          skill_gaps?: string[] | null
+          strengths?: string[] | null
+          type?: string
+          weaknesses?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "evaluations_application_id_fkey"
+            columns: ["application_id"]
+            referencedRelation: "applications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      interview_answers: {
+        Row: {
+          answer: string | null
+          created_at: string
+          feedback: string | null
+          focus: string | null
+          id: string
+          interview_id: string
+          question: string
+          question_type: string
+          score: number | null
+        }
+        Insert: {
+          answer?: string | null
+          created_at?: string
+          feedback?: string | null
+          focus?: string | null
+          id?: string
+          interview_id: string
+          question: string
+          question_type?: string
+          score?: number | null
+        }
+        Update: {
+          answer?: string | null
+          created_at?: string
+          feedback?: string | null
+          focus?: string | null
+          id?: string
+          interview_id?: string
+          question?: string
+          question_type?: string
+          score?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "interview_answers_interview_id_fkey"
+            columns: ["interview_id"]
+            referencedRelation: "interviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      interviews: {
+        Row: {
+          application_id: string
+          completed_at: string | null
+          created_at: string
+          id: string
+          question_count: number
+          status: string
+        }
+        Insert: {
+          application_id: string
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          question_count?: number
+          status?: string
+        }
+        Update: {
+          application_id?: string
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          question_count?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "interviews_application_id_fkey"
+            columns: ["application_id"]
+            referencedRelation: "applications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      jobs: {
+        Row: {
+          ai_analysis: Json | null
+          created_at: string
+          description: string
+          experience_years: number
+          id: string
+          organization_id: string
+          required_skills: string[]
+          responsibilities: string
+          status: string
+          title: string
+        }
+        Insert: {
+          ai_analysis?: Json | null
+          created_at?: string
+          description: string
+          experience_years?: number
+          id?: string
+          organization_id: string
+          required_skills?: string[]
+          responsibilities?: string
+          status?: string
+          title: string
+        }
+        Update: {
+          ai_analysis?: Json | null
+          created_at?: string
+          description?: string
+          experience_years?: number
+          id?: string
+          organization_id?: string
+          required_skills?: string[]
+          responsibilities?: string
+          status?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "jobs_organization_id_fkey"
+            columns: ["organization_id"]
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organizations: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      users: {
+        Row: {
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          organization_id: string | null
+          role: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          full_name: string
+          id: string
+          organization_id?: string | null
+          role: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          organization_id?: string | null
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "users_organization_id_fkey"
+            columns: ["organization_id"]
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      can_access_application: {
+        Args: { app: string }
+        Returns: boolean
+      }
+      can_access_interview: {
+        Args: { interview: string }
+        Returns: boolean
+      }
+      hr_can_see_candidate: {
+        Args: { candidate: string }
+        Returns: boolean
+      }
+      is_hr_of_job: {
+        Args: { job: string }
+        Returns: boolean
+      }
+      is_hr_of_org: {
+        Args: { org: string }
+        Returns: boolean
+      }
+      is_org_member: {
+        Args: { org: string }
+        Returns: boolean
+      }
+      user_role: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never

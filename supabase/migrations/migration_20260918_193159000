@@ -1,0 +1,48 @@
+alter table public.organizations enable row level security;
+alter table public.users enable row level security;
+alter table public.jobs enable row level security;
+alter table public.candidates enable row level security;
+alter table public.applications enable row level security;
+alter table public.evaluations enable row level security;
+alter table public.interviews enable row level security;
+alter table public.interview_answers enable row level security;
+alter table public.decisions enable row level security;
+
+create policy "org_select_member" on public.organizations for select to authenticated using (is_org_member(id));
+create policy "org_insert_hr" on public.organizations for insert to authenticated with check (user_role() = 'hr');
+
+create policy "users_select_self" on public.users for select to authenticated using (id = auth.uid());
+create policy "users_insert_self" on public.users for insert to authenticated with check (id = auth.uid());
+create policy "users_update_self" on public.users for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
+
+create policy "jobs_select" on public.jobs for select to authenticated using (is_org_member(organization_id) or status = 'open');
+create policy "jobs_insert_hr" on public.jobs for insert to authenticated with check (is_hr_of_org(organization_id));
+create policy "jobs_update_hr" on public.jobs for update to authenticated using (is_org_member(organization_id)) with check (is_org_member(organization_id));
+
+create policy "candidates_select" on public.candidates for select to authenticated using (user_id = auth.uid() or hr_can_see_candidate(id));
+create policy "candidates_insert_self" on public.candidates for insert to authenticated with check (user_id = auth.uid());
+create policy "candidates_update_self" on public.candidates for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+create policy "apps_select" on public.applications for select to authenticated using (can_access_application(id));
+create policy "apps_insert_candidate" on public.applications for insert to authenticated with check (candidate_id in (select id from public.candidates where user_id = auth.uid()));
+create policy "apps_update_hr" on public.applications for update to authenticated using (is_hr_of_job(job_id)) with check (is_hr_of_job(job_id));
+
+create policy "evals_select" on public.evaluations for select to authenticated using (can_access_application(application_id));
+create policy "interviews_select" on public.interviews for select to authenticated using (can_access_application(application_id));
+create policy "answers_select" on public.interview_answers for select to authenticated using (can_access_interview(interview_id));
+create policy "decisions_select" on public.decisions for select to authenticated using (can_access_application(application_id));
+create policy "decisions_insert_hr" on public.decisions for insert to authenticated with check (user_role() = 'hr' and can_access_application(application_id));
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('resumes', 'resumes', true, 10 * 1024 * 1024, array['application/pdf','text/plain']::text[])
+on conflict (id) do nothing;
+
+do $$
+begin
+  if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'resumes_read') then
+    create policy "resumes_read" on storage.objects for select to authenticated using (bucket_id = 'resumes');
+  end if;
+  if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'resumes_upload') then
+    create policy "resumes_upload" on storage.objects for insert to authenticated with check (bucket_id = 'resumes');
+  end if;
+end $$;

@@ -103,9 +103,9 @@ function mediaErrorMessage(err: unknown): string {
   if (err instanceof DOMException) {
     if (err.name === "NotAllowedError") {
       if (!isSecure) return "Camera access requires a secure (HTTPS) connection.";
-      // Permission IS granted at browser level in many cases — the page (e.g. an
-      // embedded preview iframe) or site settings may still block it.
-      return "The browser is blocking camera/microphone access for this page. Allow access in site settings, then press Retry.";
+      // The browser did not grant this origin access yet. A user-gesture
+      // request (the "Enable Camera & Microphone" button) will show the prompt.
+      return "Camera access was not granted for this page. Press \"Enable Camera & Microphone\" below to allow it (open the app in a full browser tab if the prompt does not appear).";
     }
     if (err.name === "NotFoundError") {
       return "No camera or microphone was found on this device.";
@@ -120,11 +120,11 @@ function mediaErrorMessage(err: unknown): string {
       return "Camera access is blocked by this page's security policy.";
     }
     if (err.name === "AbortError") {
-      return "Camera access was cancelled. Press Retry to try again.";
+      return "Camera access was cancelled. Press \"Enable Camera & Microphone\" to try again.";
     }
   }
   if (!isSecure) return "Camera access requires a secure (HTTPS) connection.";
-  return "Could not access your camera or microphone. Press Retry to try again.";
+  return "Could not access your camera or microphone. Press \"Enable Camera & Microphone\" to try again.";
 }
 
 // ---------------------------------------------------------------------------
@@ -314,32 +314,32 @@ export default function InterviewPage() {
     setMediaWarning(null);
 
     try {
-      // Camera is initialized independently from audio so a microphone problem
-      // can never blank the camera feed. getUserMedia({ video: true }) needs
-      // only the camera permission, which the candidate has already granted.
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      // Request camera + microphone together first (standard behavior). If the
+      // microphone part is unavailable or blocked, fall back to camera-only so
+      // the video feed still works, then attach audio to the SAME shared stream.
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const audio = audioStream.getAudioTracks()[0];
+          if (audio) stream.addTrack(audio);
+        } catch {
+          /* camera still works without the microphone */
+        }
+      }
 
       const videoTrack = stream.getVideoTracks()[0];
       if (!videoTrack || videoTrack.readyState !== "live") {
-        setMediaError("No active camera was found. Check your camera and press Retry.");
+        setMediaError("No active camera was found. Check your camera and press Enable.");
         stream.getTracks().forEach((t) => t.stop());
         mediaInitRef.current = false;
         return;
       }
 
-      // Best-effort microphone: if audio can be acquired it is added to the
-      // SAME shared stream (so the mic toggle and recording keep their audio).
-      // If audio is blocked or missing, the camera feed still works.
-      let audioTrack = stream.getAudioTracks()[0];
-      if (!audioTrack) {
-        try {
-          const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          audioTrack = audioStream.getAudioTracks()[0] ?? undefined;
-          if (audioTrack) stream.addTrack(audioTrack);
-        } catch {
-          /* camera still works without the microphone */
-        }
-      }
+      const audioTrack = stream.getAudioTracks()[0];
 
       // Store the single shared stream; re-renders reuse it.
       streamRef.current = stream;
@@ -416,18 +416,26 @@ export default function InterviewPage() {
   // -------------------------------------------------------------------------
   function toggleMic() {
     const track = streamRef.current?.getAudioTracks()[0];
-    if (track) {
-      track.enabled = micMuted;
-      setMicMuted(!micMuted);
+    if (!track) {
+      // No active stream yet — the toggle acts as an "enable" action so the
+      // candidate can request camera + microphone with a user gesture.
+      mediaInitRef.current = false;
+      initMedia();
+      return;
     }
+    track.enabled = micMuted;
+    setMicMuted(!micMuted);
   }
 
   function toggleCamera() {
     const track = streamRef.current?.getVideoTracks()[0];
-    if (track) {
-      track.enabled = cameraOff;
-      setCameraOff(!cameraOff);
+    if (!track) {
+      mediaInitRef.current = false;
+      initMedia();
+      return;
     }
+    track.enabled = cameraOff;
+    setCameraOff(!cameraOff);
   }
 
   // -------------------------------------------------------------------------
@@ -724,7 +732,7 @@ export default function InterviewPage() {
                   initMedia();
                 }}
               >
-                <Video className="h-4 w-4" /> Retry camera & microphone
+                <Video className="h-4 w-4" /> Enable Camera & Microphone
               </Button>
               <p className="mt-2 text-xs text-muted-foreground">
                 You can still complete the interview by typing your answers below.

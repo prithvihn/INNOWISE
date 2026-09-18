@@ -99,21 +99,32 @@ function speechErrorMessage(code: string): string {
 }
 
 function mediaErrorMessage(err: unknown): string {
+  const isSecure = typeof window === "undefined" || window.isSecureContext !== false;
   if (err instanceof DOMException) {
     if (err.name === "NotAllowedError") {
-      return "Camera/microphone permission was denied. Allow access in your browser, then reload the page.";
+      if (!isSecure) return "Camera access requires a secure (HTTPS) connection.";
+      // Permission IS granted at browser level in many cases — the page (e.g. an
+      // embedded preview iframe) or site settings may still block it.
+      return "The browser is blocking camera/microphone access for this page. Allow access in site settings, then press Retry.";
     }
-    if (err.name === "NotFoundError" || err.name === "OverconstrainedError") {
+    if (err.name === "NotFoundError") {
       return "No camera or microphone was found on this device.";
+    }
+    if (err.name === "OverconstrainedError") {
+      return "No camera matching the requested settings was found on this device.";
     }
     if (err.name === "NotReadableError") {
       return "Your camera or microphone is already in use by another application.";
     }
     if (err.name === "SecurityError") {
-      return "Camera access requires a secure (HTTPS) connection.";
+      return "Camera access is blocked by this page's security policy.";
+    }
+    if (err.name === "AbortError") {
+      return "Camera access was cancelled. Press Retry to try again.";
     }
   }
-  return "Could not access your camera or microphone.";
+  if (!isSecure) return "Camera access requires a secure (HTTPS) connection.";
+  return "Could not access your camera or microphone. Press Retry to try again.";
 }
 
 // ---------------------------------------------------------------------------
@@ -151,10 +162,12 @@ export default function InterviewPage() {
 
   // Camera / microphone state
   const [mediaError, setMediaError] = useState<string | null>(null);
+  const [mediaWarning, setMediaWarning] = useState<string | null>(null);
   const [micMuted, setMicMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const mediaInitRef = useRef(false);
 
   // Recording state
   const [recording, setRecording] = useState(false);
@@ -262,42 +275,100 @@ export default function InterviewPage() {
     });
   }
 
-  // Request camera + microphone once the interview is available
-  useEffect(() => {
+  // -------------------------------------------------------------------------
+  // Single shared camera + microphone stream. `initMedia` is the ONE place that
+  // calls getUserMedia; it is used on mount and by the Retry action. The stream
+  // lives in streamRef and is never recreated for re-renders, question changes,
+  // toggles or submissions. Tracks are stopped only when the interview
+  // completes or the component truly unmounts (see cleanup effect below).
+  // -------------------------------------------------------------------------
+  const initMedia = useCallback(async (): Promise<void> => {
     if (!applicationId || complete) return;
-    if (!navigator.mediaDevices?.getUserMedia) {
+
+    // Already have a live stream — just re-attach it (e.g. after the video
+    // element re-mounts); never request a second getUserMedia.
+    if (streamRef.current) {
+      if (videoRef.current) {
+        const video = videoRef.current;
+        video.muted = true;
+        video.playsInline = true;
+        video.autoplay = true;
+        video.srcObject = streamRef.current;
+        video.play().catch(() => {});
+      }
+      return;
+    }
+
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       setMediaError("Camera/microphone access is not supported in this browser.");
       return;
     }
-    let cancelled = false;
-    navigator.mediaDevices
-      .getUserMedia({ video: true, audio: true })
-      .then((stream) => {
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        streamRef.current = stream;
-        setMediaError(null);
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-        startRecording(stream);
-      })
-      .catch((err) => {
-        if (!cancelled) setMediaError(mediaErrorMessage(err));
-      });
-    return () => {
-      cancelled = true;
-    };
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+      setMediaError("Camera access requires a secure (HTTPS) connection.");
+      return;
+    }
+
+    if (mediaInitRef.current) return; // an attempt is already in flight
+    mediaInitRef.current = true;
+    setMediaError(null);
+    setMediaWarning(null);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+
+      const videoTrack = stream.getVideoTracks()[0];
+      const audioTrack = stream.getAudioTracks()[0];
+      if (!videoTrack || videoTrack.readyState !== "live") {
+        setMediaError("No active camera was found. Check your camera and press Retry.");
+        stream.getTracks().forEach((t) => t.stop());
+        mediaInitRef.current = false;
+        return;
+      }
+
+      // Store the single shared stream; re-renders reuse it.
+      streamRef.current = stream;
+      mediaInitRef.current = false;
+
+      if (videoRef.current) {
+        const video = videoRef.current;
+        video.muted = true;
+        video.playsInline = true;
+        video.autoplay = true;
+        video.srcObject = stream;
+        video.play().catch(() => {});
+      }
+
+      if (!audioTrack || audioTrack.readyState !== "live") {
+        setMediaWarning("No active microphone was found — you can still type your answers.");
+      } else {
+        setMediaWarning(null);
+      }
+
+      startRecording(stream);
+    } catch (err) {
+      console.error("[interview] getUserMedia failed:", err);
+      mediaInitRef.current = false;
+      setMediaError(mediaErrorMessage(err));
+    }
   }, [applicationId, complete]);
 
-  // Attach the stream to the video element once it is mounted
+  // Initialize the shared media stream once the interview page is mounted.
+  useEffect(() => {
+    if (applicationId && !complete) {
+      initMedia();
+    }
+  }, [applicationId, complete, initMedia]);
+
+  // Attach the stream to the video element once it is mounted (stream may
+  // arrive before the element or vice versa — re-running here is harmless).
   useEffect(() => {
     if (question && !complete && streamRef.current && videoRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-      videoRef.current.play().catch(() => {});
+      const video = videoRef.current;
+      video.muted = true;
+      video.playsInline = true;
+      video.autoplay = true;
+      video.srcObject = streamRef.current;
+      video.play().catch(() => {});
     }
   }, [question, complete]);
 
@@ -627,7 +698,19 @@ export default function InterviewPage() {
                 <CameraOff className="h-4 w-4" /> Camera / microphone unavailable
               </span>
               <p className="mt-1 text-xs text-muted-foreground">{mediaError}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-2 border-warning/40 text-warning"
+                onClick={() => {
+                  mediaInitRef.current = false;
+                  initMedia();
+                }}
+              >
+                <Video className="h-4 w-4" /> Retry camera & microphone
+              </Button>
+              <p className="mt-2 text-xs text-muted-foreground">
                 You can still complete the interview by typing your answers below.
               </p>
             </div>
@@ -653,6 +736,11 @@ export default function InterviewPage() {
           {recordingError && !mediaError && (
             <p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
               {recordingError}
+            </p>
+          )}
+          {mediaWarning && !mediaError && (
+            <p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+              {mediaWarning}
             </p>
           )}
         </div>

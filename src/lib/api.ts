@@ -15,6 +15,7 @@ import type {
 } from "./types";
 
 export const RESUMES_BUCKET = "resumes";
+export const INTERVIEW_RECORDINGS_BUCKET = "interview-recordings";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Something went wrong";
@@ -380,6 +381,25 @@ export async function uploadResume(file: File): Promise<string> {
   return data.publicUrl;
 }
 
+/** Upload an interview recording (video/audio blob) and return its public URL. */
+export async function uploadInterviewRecording(blob: Blob): Promise<string> {
+  const type = blob.type || "video/webm";
+  const ext = type.includes("mp4")
+    ? "mp4"
+    : type.includes("ogg")
+      ? "ogg"
+      : type.includes("mp3")
+        ? "mp3"
+        : "webm";
+  const path = `interview/${crypto.randomUUID()}.${ext}`;
+  const { error } = await supabase.storage
+    .from(INTERVIEW_RECORDINGS_BUCKET)
+    .upload(path, blob, { contentType: type, upsert: false });
+  if (error) throw new Error(errorMessage(error));
+  const { data } = supabase.storage.from(INTERVIEW_RECORDINGS_BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}
+
 // ---------------------------------------------------------------------------
 // Backend functions (AI)
 // ---------------------------------------------------------------------------
@@ -427,10 +447,18 @@ export async function interviewStart(applicationId: string): Promise<InterviewSt
 export async function interviewAnswer(
   interviewId: string,
   answerId: string,
-  answer: string
+  answer: string,
+  opts?: { transcript?: string; recordingUrl?: string }
 ): Promise<InterviewStepResult> {
   const { data, error } = await supabase.functions.invoke("interview-question", {
-    body: { application_id: undefined, interview_id: interviewId, answer_id: answerId, answer },
+    body: {
+      application_id: undefined,
+      interview_id: interviewId,
+      answer_id: answerId,
+      answer,
+      transcript: opts?.transcript || undefined,
+      recording_url: opts?.recordingUrl || undefined,
+    },
   });
   if (error) throw await functionError(error);
   if (data && data.ok === false) throw new Error(data.error || "Interview failed");

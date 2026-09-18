@@ -3539,6 +3539,7 @@ export type Database = {
           question: string
           question_type: string
           score: number | null
+          transcript: string | null
         }
         Insert: {
           answer?: string | null
@@ -3550,6 +3551,7 @@ export type Database = {
           question: string
           question_type?: string
           score?: number | null
+          transcript?: string | null
         }
         Update: {
           answer?: string | null
@@ -3561,6 +3563,7 @@ export type Database = {
           question?: string
           question_type?: string
           score?: number | null
+          transcript?: string | null
         }
         Relationships: [
           {
@@ -3578,6 +3581,7 @@ export type Database = {
           created_at: string
           id: string
           question_count: number
+          recording_url: string | null
           status: string
         }
         Insert: {
@@ -3586,6 +3590,7 @@ export type Database = {
           created_at?: string
           id?: string
           question_count?: number
+          recording_url?: string | null
           status?: string
         }
         Update: {
@@ -3594,6 +3599,7 @@ export type Database = {
           created_at?: string
           id?: string
           question_count?: number
+          recording_url?: string | null
           status?: string
         }
         Relationships: [

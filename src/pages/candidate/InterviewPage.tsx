@@ -5,6 +5,7 @@ import {
   BadgeCheck,
   CameraOff,
   CheckCircle2,
+  Circle,
   Loader2,
   MessagesSquare,
   Mic,
@@ -27,7 +28,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/context/useAuth";
-import { interviewAnswer, interviewStart } from "@/lib/api";
+import { interviewAnswer, interviewStart, uploadInterviewRecording } from "@/lib/api";
 import { interviewResultLabel, scoreColor } from "@/lib/status";
 
 interface QuestionState {
@@ -43,6 +44,58 @@ interface QuestionState {
 
 interface CompleteState {
   result: Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// Speech recognition (Web Speech API) minimal typings
+// ---------------------------------------------------------------------------
+interface SpeechRecognitionResultLike {
+  0: { transcript: string };
+  isFinal: boolean;
+}
+
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: ArrayLike<SpeechRecognitionResultLike>;
+}
+
+interface SpeechRecognitionLike {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+}
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+function getSpeechRecognition(): SpeechRecognitionCtor | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as {
+    SpeechRecognition?: SpeechRecognitionCtor;
+    webkitSpeechRecognition?: SpeechRecognitionCtor;
+  };
+  return w.SpeechRecognition || w.webkitSpeechRecognition || null;
+}
+
+function speechErrorMessage(code: string): string {
+  if (code === "not-allowed" || code === "service-not-allowed") {
+    return "Microphone access for speech-to-text was denied. You can type your answer instead.";
+  }
+  if (code === "audio-capture") {
+    return "Could not capture audio for speech-to-text. You can type your answer instead.";
+  }
+  if (code === "network") {
+    return "Speech-to-text network error. You can type your answer instead.";
+  }
+  if (code === "no-speech") {
+    return "No speech detected. Try again, or type your answer.";
+  }
+  return "Speech-to-text failed. You can type your answer instead.";
 }
 
 function mediaErrorMessage(err: unknown): string {
@@ -63,6 +116,27 @@ function mediaErrorMessage(err: unknown): string {
   return "Could not access your camera or microphone.";
 }
 
+// ---------------------------------------------------------------------------
+// MediaRecorder helpers
+// ---------------------------------------------------------------------------
+function pickRecordingMimeType(): string | undefined {
+  if (typeof MediaRecorder === "undefined") return undefined;
+  const candidates = [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm",
+    "audio/webm",
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (MediaRecorder.isTypeSupported(candidate)) return candidate;
+    } catch {
+      /* keep trying */
+    }
+  }
+  return undefined;
+}
+
 export default function InterviewPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
@@ -81,6 +155,21 @@ export default function InterviewPage() {
   const [cameraOff, setCameraOff] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // Recording state
+  const [recording, setRecording] = useState(false);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  // Speech-to-text state
+  const [listening, setListening] = useState(false);
+  const [sttError, setSttError] = useState<string | null>(null);
+  const [sttSupported] = useState<boolean>(() => getSpeechRecognition() !== null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const answerRef = useRef("");
+  const dictationBaseRef = useRef("");
+  const lastTranscriptRef = useRef<string | undefined>(undefined);
 
   const init = useCallback(async () => {
     if (!applicationId) {
@@ -115,6 +204,64 @@ export default function InterviewPage() {
     init();
   }, [init]);
 
+  // -------------------------------------------------------------------------
+  // Recording controls
+  // -------------------------------------------------------------------------
+  function startRecording(stream: MediaStream) {
+    if (recorderRef.current || typeof MediaRecorder === "undefined") {
+      if (typeof MediaRecorder === "undefined") {
+        setRecordingError("Recording is not supported in this browser — your typed answers will still be saved.");
+      }
+      return;
+    }
+    try {
+      const mimeType = pickRecordingMimeType();
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        setRecordingError("Recording error — your typed answers will still be saved.");
+      };
+      recorder.start(1000);
+      recorderRef.current = recorder;
+      setRecording(true);
+      setRecordingError(null);
+    } catch {
+      setRecordingError("Recording could not be started — your typed answers will still be saved.");
+    }
+  }
+
+  /** Stop the recorder, upload the file, and return its public URL (or null). */
+  function stopRecordingAndUpload(): Promise<string | null> {
+    return new Promise((resolve) => {
+      const recorder = recorderRef.current;
+      if (!recorder || recorder.state === "inactive") {
+        setRecording(false);
+        resolve(null);
+        return;
+      }
+      recorder.onstop = () => {
+        recorderRef.current = null;
+        setRecording(false);
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "video/webm" });
+        chunksRef.current = [];
+        if (blob.size < 1024) {
+          resolve(null);
+          return;
+        }
+        uploadInterviewRecording(blob)
+          .then((url) => resolve(url))
+          .catch(() => {
+            setRecordingError("Recording couldn't be saved — your answer was still submitted.");
+            resolve(null);
+          });
+      };
+      recorder.stop();
+    });
+  }
+
   // Request camera + microphone once the interview is available
   useEffect(() => {
     if (!applicationId || complete) return;
@@ -136,6 +283,7 @@ export default function InterviewPage() {
           videoRef.current.srcObject = stream;
           videoRef.current.play().catch(() => {});
         }
+        startRecording(stream);
       })
       .catch((err) => {
         if (!cancelled) setMediaError(mediaErrorMessage(err));
@@ -153,17 +301,32 @@ export default function InterviewPage() {
     }
   }, [question, complete]);
 
-  // Stop the media stream when the interview completes or on unmount
+  // Stop media + recording + dictation when the interview completes or on unmount
   useEffect(() => {
     if (complete) {
+      try {
+        recorderRef.current?.stop();
+      } catch {
+        /* ignore */
+      }
+      recognitionRef.current?.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
     return () => {
+      try {
+        recorderRef.current?.stop();
+      } catch {
+        /* ignore */
+      }
+      recognitionRef.current?.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, [complete]);
 
+  // -------------------------------------------------------------------------
+  // Camera / microphone toggles (never stops the recording or the camera feed)
+  // -------------------------------------------------------------------------
   function toggleMic() {
     const track = streamRef.current?.getAudioTracks()[0];
     if (track) {
@@ -180,6 +343,65 @@ export default function InterviewPage() {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Speech-to-text
+  // -------------------------------------------------------------------------
+  function startDictation() {
+    const Ctor = getSpeechRecognition();
+    if (!Ctor) {
+      setSttError("Speech-to-text is not supported in this browser — type your answer instead.");
+      return;
+    }
+    stopDictation();
+    const recognition = new Ctor();
+    recognition.lang = "en-US";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    dictationBaseRef.current = answerRef.current;
+
+    recognition.onresult = (event) => {
+      let transcript = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result && result[0] && typeof result[0].transcript === "string") {
+          transcript += result[0].transcript;
+        }
+      }
+      const base = dictationBaseRef.current;
+      const combined = (base ? base + " " : "") + transcript;
+      setAnswer(combined);
+      answerRef.current = combined;
+      lastTranscriptRef.current = transcript;
+    };
+    recognition.onerror = (event) => {
+      setSttError(speechErrorMessage(event.error));
+      setListening(false);
+    };
+    recognition.onend = () => setListening(false);
+
+    try {
+      recognition.start();
+      recognitionRef.current = recognition;
+      setListening(true);
+      setSttError(null);
+    } catch {
+      setSttError("Could not start speech-to-text — type your answer instead.");
+    }
+  }
+
+  function stopDictation() {
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      /* ignore */
+    }
+    recognitionRef.current = null;
+    setListening(false);
+  }
+
+  // -------------------------------------------------------------------------
+  // Submit
+  // -------------------------------------------------------------------------
   async function submitAnswer(e: FormEvent) {
     e.preventDefault();
     if (!question || answer.trim().length < 10) {
@@ -188,9 +410,27 @@ export default function InterviewPage() {
     }
     setSubmitting(true);
     setError(null);
+    stopDictation();
+
     try {
-      const res = await interviewAnswer(question.interviewId, question.answerId, answer.trim());
+      let recordingUrl: string | null = null;
+      const isFinal = question.index >= question.total;
+      if (isFinal) {
+        // Last answer: stop the session recording and save it first
+        recordingUrl = await stopRecordingAndUpload();
+      }
+
+      const res = await interviewAnswer(question.interviewId, question.answerId, answer.trim(), {
+        transcript: lastTranscriptRef.current || undefined,
+        recordingUrl: recordingUrl || undefined,
+      });
+
       setAnswer("");
+      answerRef.current = "";
+      lastTranscriptRef.current = undefined;
+      dictationBaseRef.current = "";
+      setSttError(null);
+
       if (res.phase === "complete") {
         setQuestion(null);
         setComplete({ result: res.result as Record<string, unknown> });
@@ -354,7 +594,7 @@ export default function InterviewPage() {
         <Progress value={(question.index / question.total) * 100} className="h-2" />
       </div>
 
-      {/* Camera + microphone panel */}
+      {/* Camera + microphone + recording panel */}
       <div className="flex flex-col gap-4 sm:flex-row">
         <div className="relative aspect-video w-full overflow-hidden rounded-xl border bg-black sm:w-72">
           <video ref={videoRef} muted autoPlay playsInline className="h-full w-full object-cover" />
@@ -373,6 +613,11 @@ export default function InterviewPage() {
             {micMuted ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
             {micMuted ? "Mic muted" : "Mic live"}
           </div>
+          {recording && !mediaError && (
+            <div className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full bg-red-600/80 px-2 py-1 text-[11px] font-medium text-white">
+              <Circle className="h-2.5 w-2.5 animate-pulse fill-current" /> Recording
+            </div>
+          )}
         </div>
 
         <div className="flex-1 space-y-3">
@@ -399,9 +644,16 @@ export default function InterviewPage() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Your camera and microphone are active for this interview session. Answers are typed below.
+                {recording
+                  ? "Recording in progress — your whole interview session is being captured."
+                  : "Your camera and microphone are active for this interview session. Answers are typed below."}
               </p>
             </>
+          )}
+          {recordingError && !mediaError && (
+            <p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+              {recordingError}
+            </p>
           )}
         </div>
       </div>
@@ -430,13 +682,46 @@ export default function InterviewPage() {
           <form onSubmit={submitAnswer} className="space-y-3">
             <div className="space-y-2">
               <Label htmlFor="answer">Your answer</Label>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={listening ? "default" : "outline"}
+                  onClick={listening ? stopDictation : startDictation}
+                  disabled={!sttSupported || !!mediaError}
+                >
+                  {listening ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+                  {listening ? "Stop dictation" : "Speak your answer"}
+                </Button>
+                {listening && (
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-primary">
+                    <Circle className="h-2 w-2 animate-pulse fill-current" /> Listening… transcript appears in the box
+                  </span>
+                )}
+                {!sttSupported && !mediaError && (
+                  <span className="text-xs text-muted-foreground">
+                    Speech-to-text isn't supported in this browser — type your answer instead.
+                  </span>
+                )}
+              </div>
+              {sttError && <p className="text-xs text-warning">{sttError}</p>}
+
               <Textarea
                 id="answer"
-                placeholder="Answer as you would in a real interview…"
+                placeholder="Speak with the microphone or type your answer…"
                 className="min-h-[140px]"
                 value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
+                onChange={(e) => {
+                  setAnswer(e.target.value);
+                  answerRef.current = e.target.value;
+                }}
               />
+              <p className="text-xs text-muted-foreground">
+                {listening
+                  ? "You can edit the transcript before submitting."
+                  : "Spoken answers are transcribed into this box and can be edited. Typing works anytime."}
+              </p>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>

@@ -185,6 +185,8 @@ Deno.serve(async (req) => {
     const interview_id = body.interview_id as string | undefined;
     const answer_id = body.answer_id as string | undefined;
     const answer = body.answer as string | undefined;
+    const transcript = body.transcript as string | undefined;
+    const recording_url = body.recording_url as string | undefined;
 
     if (!application_id && !interview_id) throw new Error("application_id is required");
 
@@ -384,7 +386,7 @@ Deno.serve(async (req) => {
 
     const { error: scErr } = await supabase
       .from("interview_answers")
-      .update({ answer, score, feedback })
+      .update({ answer, ...(transcript ? { transcript } : {}), score, feedback })
       .eq("id", answer_id);
     if (scErr) throw scErr;
 
@@ -452,7 +454,12 @@ Deno.serve(async (req) => {
 
     const { error: doneErr } = await supabase
       .from("interviews")
-      .update({ status: "completed", completed_at: new Date().toISOString(), question_count: answeredCount })
+      .update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        question_count: answeredCount,
+        ...(recording_url ? { recording_url } : {}),
+      })
       .eq("id", interview.id);
     if (doneErr) throw doneErr;
 

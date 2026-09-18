@@ -163,6 +163,7 @@ export default function InterviewPage() {
   // Camera / microphone state
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [mediaWarning, setMediaWarning] = useState<string | null>(null);
+  const [mediaReady, setMediaReady] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -288,6 +289,7 @@ export default function InterviewPage() {
     // Already have a live stream — just re-attach it (e.g. after the video
     // element re-mounts); never request a second getUserMedia.
     if (streamRef.current) {
+      setMediaReady(true);
       if (videoRef.current) {
         const video = videoRef.current;
         video.muted = true;
@@ -343,6 +345,7 @@ export default function InterviewPage() {
 
       // Store the single shared stream; re-renders reuse it.
       streamRef.current = stream;
+      setMediaReady(true);
       mediaInitRef.current = false;
 
       if (videoRef.current) {
@@ -362,17 +365,40 @@ export default function InterviewPage() {
 
       startRecording(stream);
     } catch (err) {
-      console.error("[interview] camera getUserMedia failed:", err);
+      console.error(
+        "[interview] camera getUserMedia failed:",
+        err instanceof DOMException ? `${err.name}: ${err.message}` : err
+      );
       mediaInitRef.current = false;
       setMediaError(mediaErrorMessage(err));
     }
   }, [applicationId, complete]);
 
-  // Initialize the shared media stream once the interview page is mounted.
+  // Only auto-start the camera when permission is ALREADY granted for this
+  // origin. Calling getUserMedia on page load without a user gesture can be
+  // auto-denied by the browser — which marks the origin as denied and causes
+  // persistent "Camera unavailable". Otherwise we wait for the explicit
+  // "Enable Camera & Microphone" button, which requests with a user gesture.
   useEffect(() => {
-    if (applicationId && !complete) {
-      initMedia();
-    }
+    let active = true;
+    (async () => {
+      let state = "unknown";
+      try {
+        if (navigator.permissions?.query) {
+          const result = await navigator.permissions.query({ name: "camera" as PermissionName });
+          state = result.state;
+        }
+      } catch {
+        /* permissions query unsupported — wait for the Enable button */
+      }
+      if (!active || !applicationId || complete) return;
+      if (state === "granted") {
+        initMedia();
+      }
+    })();
+    return () => {
+      active = false;
+    };
   }, [applicationId, complete, initMedia]);
 
   // Attach the stream to the video element once it is mounted (stream may
@@ -399,6 +425,7 @@ export default function InterviewPage() {
       recognitionRef.current?.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
+      setMediaReady(false);
     }
     return () => {
       try {
@@ -693,22 +720,22 @@ export default function InterviewPage() {
       <div className="flex flex-col gap-4 sm:flex-row">
         <div className="relative aspect-video w-full overflow-hidden rounded-xl border bg-black sm:w-72">
           <video ref={videoRef} muted autoPlay playsInline className="h-full w-full object-cover" />
-          {cameraOff && (
+          {cameraOff && mediaReady && (
             <div className="absolute inset-0 flex items-center justify-center bg-muted text-sm text-muted-foreground">
               <VideoOff className="mr-2 h-4 w-4" /> Camera off
             </div>
           )}
-          {mediaError && (
+          {!mediaReady && (
             <div className="absolute inset-0 flex items-center justify-center bg-muted p-4 text-center text-xs text-muted-foreground">
               <CameraOff className="mb-1 block h-5 w-5" />
-              Camera unavailable
+              {mediaError || "Camera preview — press Enable to start"}
             </div>
           )}
           <div className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] text-white">
-            {micMuted ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
-            {micMuted ? "Mic muted" : "Mic live"}
+            {!mediaReady ? <MicOff className="h-3 w-3" /> : micMuted ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
+            {!mediaReady ? "Mic off" : micMuted ? "Mic muted" : "Mic live"}
           </div>
-          {recording && !mediaError && (
+          {recording && mediaReady && !mediaError && (
             <div className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full bg-red-600/80 px-2 py-1 text-[11px] font-medium text-white">
               <Circle className="h-2.5 w-2.5 animate-pulse fill-current" /> Recording
             </div>
@@ -716,7 +743,29 @@ export default function InterviewPage() {
         </div>
 
         <div className="flex-1 space-y-3">
-          {mediaError ? (
+          {!mediaReady ? (
+            <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">
+              <span className="flex items-center gap-1.5 font-medium text-warning">
+                <CameraOff className="h-4 w-4" /> Camera & microphone are off
+              </span>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {mediaError ||
+                  "Enable camera and microphone to start the live session. The AI interview works with typed answers even without them."}
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-2 border-warning/40 text-warning"
+                onClick={() => {
+                  mediaInitRef.current = false;
+                  initMedia();
+                }}
+              >
+                <Video className="h-4 w-4" /> Enable Camera & Microphone
+              </Button>
+            </div>
+          ) : mediaError ? (
             <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
               <span className="flex items-center gap-1.5 font-medium">
                 <CameraOff className="h-4 w-4" /> Camera / microphone unavailable

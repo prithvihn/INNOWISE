@@ -6,14 +6,13 @@ import {
   CameraOff,
   CheckCircle2,
   Circle,
+  ExternalLink,
   Loader2,
   MessagesSquare,
   Mic,
   MicOff,
   Send,
   Sparkles,
-  Video,
-  VideoOff,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -103,9 +102,8 @@ function mediaErrorMessage(err: unknown): string {
   if (err instanceof DOMException) {
     if (err.name === "NotAllowedError") {
       if (!isSecure) return "Camera access requires a secure (HTTPS) connection.";
-      // The browser did not grant this origin access yet. A user-gesture
-      // request (the "Enable Camera & Microphone" button) will show the prompt.
-      return "Camera access was not granted for this page. Press \"Enable Camera & Microphone\" below to allow it (open the app in a full browser tab if the prompt does not appear).";
+      // Auto-start already ran; the browser did not grant access for this page.
+      return "Camera/microphone access was not granted for this page. Allow access when your browser asks (or in site settings), then reopen the interview.";
     }
     if (err.name === "NotFoundError") {
       return "No camera or microphone was found on this device.";
@@ -120,11 +118,11 @@ function mediaErrorMessage(err: unknown): string {
       return "Camera access is blocked by this page's security policy.";
     }
     if (err.name === "AbortError") {
-      return "Camera access was cancelled. Press \"Enable Camera & Microphone\" to try again.";
+      return "Camera access was cancelled.";
     }
   }
   if (!isSecure) return "Camera access requires a secure (HTTPS) connection.";
-  return "Could not access your camera or microphone. Press \"Enable Camera & Microphone\" to try again.";
+  return "Could not access your camera or microphone.";
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +146,14 @@ function pickRecordingMimeType(): string | undefined {
   return undefined;
 }
 
+/**
+ * True when the interview page is embedded inside an iframe/preview shell.
+ * Cross-origin embeds that do not allow `camera; microphone` block getUserMedia
+ * regardless of the browser permission — in that case the candidate must open
+ * the interview in a top-level browser tab.
+ */
+const EMBEDDED = typeof window !== "undefined" && window.self !== window.top;
+
 export default function InterviewPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
@@ -164,8 +170,7 @@ export default function InterviewPage() {
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [mediaWarning, setMediaWarning] = useState<string | null>(null);
   const [mediaReady, setMediaReady] = useState(false);
-  const [micMuted, setMicMuted] = useState(false);
-  const [cameraOff, setCameraOff] = useState(false);
+  const [mediaBlockedByEmbedding, setMediaBlockedByEmbedding] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const mediaInitRef = useRef(false);
@@ -278,10 +283,10 @@ export default function InterviewPage() {
 
   // -------------------------------------------------------------------------
   // Single shared camera + microphone stream. `initMedia` is the ONE place that
-  // calls getUserMedia; it is used on mount and by the Retry action. The stream
-  // lives in streamRef and is never recreated for re-renders, question changes,
-  // toggles or submissions. Tracks are stopped only when the interview
-  // completes or the component truly unmounts (see cleanup effect below).
+  // calls getUserMedia; it auto-starts when the interview page mounts. The
+  // stream lives in streamRef and is never recreated for re-renders, question
+  // changes, submissions or feedback. Tracks are stopped only when the
+  // interview completes or the component truly unmounts (cleanup effect below).
   // -------------------------------------------------------------------------
   const initMedia = useCallback(async (): Promise<void> => {
     if (!applicationId || complete) return;
@@ -314,11 +319,12 @@ export default function InterviewPage() {
     mediaInitRef.current = true;
     setMediaError(null);
     setMediaWarning(null);
+    setMediaBlockedByEmbedding(false);
 
     try {
-      // Request camera + microphone together first (standard behavior). If the
-      // microphone part is unavailable or blocked, fall back to camera-only so
-      // the video feed still works, then attach audio to the SAME shared stream.
+      // Request camera + microphone together first. If the microphone part is
+      // unavailable or blocked, fall back to camera-only so the video feed
+      // still works, then attach audio to the SAME shared stream.
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -335,7 +341,7 @@ export default function InterviewPage() {
 
       const videoTrack = stream.getVideoTracks()[0];
       if (!videoTrack || videoTrack.readyState !== "live") {
-        setMediaError("No active camera was found. Check your camera and press Enable.");
+        setMediaError("No active camera was found on this device.");
         stream.getTracks().forEach((t) => t.stop());
         mediaInitRef.current = false;
         return;
@@ -370,35 +376,26 @@ export default function InterviewPage() {
         err instanceof DOMException ? `${err.name}: ${err.message}` : err
       );
       mediaInitRef.current = false;
-      setMediaError(mediaErrorMessage(err));
+      // Root cause diagnosis: inside an embedded iframe/preview that does not
+      // allow `camera; microphone`, the browser rejects with NotAllowedError
+      // even when the permission is granted. Direct the candidate to a real
+      // top-level tab where getUserMedia is permitted.
+      const blockedByEmbedding =
+        EMBEDDED && err instanceof DOMException && err.name === "NotAllowedError";
+      setMediaBlockedByEmbedding(blockedByEmbedding);
+      setMediaError(
+        blockedByEmbedding
+          ? "This interview is running inside an embedded preview that blocks camera & microphone access. Open the interview in a new browser tab to enable your camera and microphone."
+          : mediaErrorMessage(err)
+      );
     }
   }, [applicationId, complete]);
 
-  // Only auto-start the camera when permission is ALREADY granted for this
-  // origin. Calling getUserMedia on page load without a user gesture can be
-  // auto-denied by the browser — which marks the origin as denied and causes
-  // persistent "Camera unavailable". Otherwise we wait for the explicit
-  // "Enable Camera & Microphone" button, which requests with a user gesture.
+  // Auto-start camera + microphone as soon as the interview page is mounted.
   useEffect(() => {
-    let active = true;
-    (async () => {
-      let state = "unknown";
-      try {
-        if (navigator.permissions?.query) {
-          const result = await navigator.permissions.query({ name: "camera" as PermissionName });
-          state = result.state;
-        }
-      } catch {
-        /* permissions query unsupported — wait for the Enable button */
-      }
-      if (!active || !applicationId || complete) return;
-      if (state === "granted") {
-        initMedia();
-      }
-    })();
-    return () => {
-      active = false;
-    };
+    if (applicationId && !complete) {
+      initMedia();
+    }
   }, [applicationId, complete, initMedia]);
 
   // Attach the stream to the video element once it is mounted (stream may
@@ -437,33 +434,6 @@ export default function InterviewPage() {
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, [complete]);
-
-  // -------------------------------------------------------------------------
-  // Camera / microphone toggles (never stops the recording or the camera feed)
-  // -------------------------------------------------------------------------
-  function toggleMic() {
-    const track = streamRef.current?.getAudioTracks()[0];
-    if (!track) {
-      // No active stream yet — the toggle acts as an "enable" action so the
-      // candidate can request camera + microphone with a user gesture.
-      mediaInitRef.current = false;
-      initMedia();
-      return;
-    }
-    track.enabled = micMuted;
-    setMicMuted(!micMuted);
-  }
-
-  function toggleCamera() {
-    const track = streamRef.current?.getVideoTracks()[0];
-    if (!track) {
-      mediaInitRef.current = false;
-      initMedia();
-      return;
-    }
-    track.enabled = cameraOff;
-    setCameraOff(!cameraOff);
-  }
 
   // -------------------------------------------------------------------------
   // Speech-to-text
@@ -720,22 +690,17 @@ export default function InterviewPage() {
       <div className="flex flex-col gap-4 sm:flex-row">
         <div className="relative aspect-video w-full overflow-hidden rounded-xl border bg-black sm:w-72">
           <video ref={videoRef} muted autoPlay playsInline className="h-full w-full object-cover" />
-          {cameraOff && mediaReady && (
-            <div className="absolute inset-0 flex items-center justify-center bg-muted text-sm text-muted-foreground">
-              <VideoOff className="mr-2 h-4 w-4" /> Camera off
-            </div>
-          )}
           {!mediaReady && (
             <div className="absolute inset-0 flex items-center justify-center bg-muted p-4 text-center text-xs text-muted-foreground">
               <CameraOff className="mb-1 block h-5 w-5" />
-              {mediaError || "Camera preview — press Enable to start"}
+              {mediaError || "Camera preview — starting…"}
             </div>
           )}
           <div className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] text-white">
-            {!mediaReady ? <MicOff className="h-3 w-3" /> : micMuted ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
-            {!mediaReady ? "Mic off" : micMuted ? "Mic muted" : "Mic live"}
+            {mediaReady ? <Mic className="h-3 w-3" /> : <MicOff className="h-3 w-3" />}
+            {mediaReady ? "Mic live" : "Mic off"}
           </div>
-          {recording && mediaReady && !mediaError && (
+          {recording && mediaReady && (
             <div className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full bg-red-600/80 px-2 py-1 text-[11px] font-medium text-white">
               <Circle className="h-2.5 w-2.5 animate-pulse fill-current" /> Recording
             </div>
@@ -743,68 +708,37 @@ export default function InterviewPage() {
         </div>
 
         <div className="flex-1 space-y-3">
-          {!mediaReady ? (
-            <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">
-              <span className="flex items-center gap-1.5 font-medium text-warning">
-                <CameraOff className="h-4 w-4" /> Camera & microphone are off
-              </span>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {mediaError ||
-                  "Enable camera and microphone to start the live session. The AI interview works with typed answers even without them."}
-              </p>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="mt-2 border-warning/40 text-warning"
-                onClick={() => {
-                  mediaInitRef.current = false;
-                  initMedia();
-                }}
-              >
-                <Video className="h-4 w-4" /> Enable Camera & Microphone
-              </Button>
-            </div>
-          ) : mediaError ? (
+          {mediaError ? (
             <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
               <span className="flex items-center gap-1.5 font-medium">
                 <CameraOff className="h-4 w-4" /> Camera / microphone unavailable
               </span>
               <p className="mt-1 text-xs text-muted-foreground">{mediaError}</p>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="mt-2 border-warning/40 text-warning"
-                onClick={() => {
-                  mediaInitRef.current = false;
-                  initMedia();
-                }}
-              >
-                <Video className="h-4 w-4" /> Enable Camera & Microphone
-              </Button>
+              {mediaBlockedByEmbedding && (
+                <a
+                  href={window.location.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-warning/40 px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/10"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" /> Open interview in a new tab
+                </a>
+              )}
               <p className="mt-2 text-xs text-muted-foreground">
                 You can still complete the interview by typing your answers below.
               </p>
             </div>
+          ) : mediaReady ? (
+            <p className="text-xs text-muted-foreground">
+              {recording
+                ? "Camera and microphone are active — recording this interview session."
+                : "Your camera and microphone are active for this interview session. Answers are typed below."}
+            </p>
           ) : (
-            <>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant={micMuted ? "secondary" : "outline"} onClick={toggleMic}>
-                  {micMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                  {micMuted ? "Unmute microphone" : "Mute microphone"}
-                </Button>
-                <Button type="button" size="sm" variant={cameraOff ? "secondary" : "outline"} onClick={toggleCamera}>
-                  {cameraOff ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
-                  {cameraOff ? "Turn camera on" : "Turn camera off"}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {recording
-                  ? "Recording in progress — your whole interview session is being captured."
-                  : "Your camera and microphone are active for this interview session. Answers are typed below."}
-              </p>
-            </>
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              Camera and microphone are starting…
+            </p>
           )}
           {recordingError && !mediaError && (
             <p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">

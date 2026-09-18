@@ -314,15 +314,31 @@ export default function InterviewPage() {
     setMediaWarning(null);
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      // Camera is initialized independently from audio so a microphone problem
+      // can never blank the camera feed. getUserMedia({ video: true }) needs
+      // only the camera permission, which the candidate has already granted.
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
 
       const videoTrack = stream.getVideoTracks()[0];
-      const audioTrack = stream.getAudioTracks()[0];
       if (!videoTrack || videoTrack.readyState !== "live") {
         setMediaError("No active camera was found. Check your camera and press Retry.");
         stream.getTracks().forEach((t) => t.stop());
         mediaInitRef.current = false;
         return;
+      }
+
+      // Best-effort microphone: if audio can be acquired it is added to the
+      // SAME shared stream (so the mic toggle and recording keep their audio).
+      // If audio is blocked or missing, the camera feed still works.
+      let audioTrack = stream.getAudioTracks()[0];
+      if (!audioTrack) {
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          audioTrack = audioStream.getAudioTracks()[0] ?? undefined;
+          if (audioTrack) stream.addTrack(audioTrack);
+        } catch {
+          /* camera still works without the microphone */
+        }
       }
 
       // Store the single shared stream; re-renders reuse it.
@@ -346,7 +362,7 @@ export default function InterviewPage() {
 
       startRecording(stream);
     } catch (err) {
-      console.error("[interview] getUserMedia failed:", err);
+      console.error("[interview] camera getUserMedia failed:", err);
       mediaInitRef.current = false;
       setMediaError(mediaErrorMessage(err));
     }

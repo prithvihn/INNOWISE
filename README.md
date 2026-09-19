@@ -1,151 +1,176 @@
-# Welcome to your Enter project
+# INNOWISE — AI-Powered HR Workforce Management
 
-[![Built with enter.pro](https://img.shields.io/badge/Build%20with-Enter.pro-FC5776?style=for-the-badge&labelColor=1F1F1F)](https://enter.pro)
+**"AI recommends. You decide."**
 
-*Automatically synced with your [enter.pro](https://enter.pro) workspace* 
-
----
-
-## Overview
-
-This repository is automatically linked to your app on [enter.pro](https://enter.pro).  
-Every change you make in Enter will be reflected here — and any updates you push to this repo will sync back seamlessly.  
-
-Enter.pro helps you **build, edit, and deploy full-stack web apps by prompting**.  
-Just describe what you want — Enter turns ideas into production-ready code.
+INNOWISE is a minimal, fully working AI HR platform. A recruiter creates a job, and the AI handles the
+heavy lifting at every stage — analyzing the role, screening resumes, running an adaptive interview,
+and verifying a candidate's claims against public evidence. The recruiter always makes the final call.
 
 ---
 
-## Project URLs
+## 1. What the product does (the 4-stage pipeline)
 
-**Live app:** https://<project-id>-latest.preview.enter.pro  
-**Edit & build in Enter:** https://enter.pro/project/<project-id>
+```
+Create job → AI job analysis → Candidate applies (resume) → AI ATS screening
+  → Resume verification (claims vs public evidence) → Adaptive AI interview (proctored)
+  → HR compares & gets an AI recommendation → Recruiter records the final decision
+```
 
+| Stage | What happens |
+|-------|--------------|
+| **1. AI job analysis** | Recruiter posts a job; AI reads the description and extracts required skills, preferred skills, experience level, and interview competencies. |
+| **2. AI ATS screening** | Candidate uploads/pastes a resume. AI extracts a structured profile (skills, experience, projects, education) and reasons over resume-vs-job — a match score, matched skills, skill gaps, and quoted evidence. Not keyword matching — real reasoning. |
+| **3. Resume verification** | *Optional, consent-first.* AI extracts professional claims from the resume, checks them against public evidence (GitHub public API; LinkedIn stays self-reported), and scores each claim: VERIFIED / PARTIALLY_VERIFIED / UNVERIFIED / CONTRADICTED / UNVERIFIABLE. Produces a credibility band, a recruiter brief with an honest coverage statement, and lets the candidate explain flagged claims. **Never auto-rejects. Declining is never scored against the candidate.** |
+| **4. Adaptive AI interview** | A role-specific, adaptive interview: each question reacts to the previous answer. Camera + microphone start automatically, the session is recorded, and the candidate can dictate answers with speech-to-text. Proctoring (consent gate, fullscreen lock, heartbeat, violation detection) keeps the assessment honest — violations terminate the session and flag it, but HR can always override. |
+| **5. HR decision** | HR sees everything per candidate (ATS score, interview evaluation, verification band, proctoring flags), gets an AI comparison + recommendation, and records the final decision. |
 
 ---
 
-## Continue building
+## 2. Innovation (what's different)
 
-Keep developing your app directly in [Enter.pro](https://enter.pro/project/<project-id>).  
-Prompt new features, refine the UI, or connect integrations — all changes are versioned and synced automatically to GitHub.
+- **Reasoning-based screening, not keyword counting.** The ATS reads like a hiring manager: it quotes
+  concrete resume evidence for every matched skill and gap, and scores harshly/calibrated.
+- **Resume verification with integrity.** Instead of a black-box "background check", INNOWISE
+  surfaces *evidence* (URLs + fetched artifacts + audit trail), scores claims with defined verdicts,
+  and lets the candidate respond. The system is designed to **never** accuse a candidate of lying —
+  it reports discrepancies with sources.
+- **Consent-first, privacy-aware AI.** Verification is opt-in; personal data is stripped before any
+  model sees the resume; audit events record every fetch and verdict.
+- **Proctored adaptive interviews in the browser.** No external proctoring SaaS — fullscreen lock,
+  heartbeat, violation policy, and integrity-based evaluation all run through backend functions with
+  a full audit log.
+- **Human-in-the-loop by design.** Every AI stage is advisory. There is no code path that rejects a
+  candidate automatically.
 
 ---
 
-## Local development
+## 3. Tech stack
 
-Prefer to work locally? You can clone this repo and start developing right away:
+| Layer | Technology |
+|-------|-----------|
+| Frontend | **React 18 + Vite + TypeScript** |
+| Styling | **Tailwind CSS** + **shadcn/ui** (custom warm-amber design tokens) |
+| Routing | **React Router v7** |
+| Animation | **React Three Fiber (3D briefcase hero), GSAP ScrollTrigger, Lenis** smooth scroll, JetBrains Mono |
+| Backend | **Enter Cloud** — managed Postgres database + row-level security + backend functions (Deno) |
+| AI | **Enter AI** (LLM structured-JSON output) — model: GPT 5.6 Luna (`openai/gpt-5.6-luna`, Responses protocol) |
+| External evidence | **GitHub public API** (unauthenticated, rate-limit aware, graceful degradation) |
+| Browser APIs | MediaRecorder (interview recording), Web Speech API (dictation), Fullscreen API + sendBeacon (proctoring) |
+
+---
+
+## 4. Architecture
+
+### Frontend
+- `src/pages/hr/*` — HR console: Overview, Jobs, Job detail (pipeline), Candidates, Interviews, Decisions.
+- `src/pages/candidate/*` — Candidate console: Dashboard, Apply, Interview.
+- `src/components/verification/*` — Resume-verification UI (consent card, report, HR report dialog).
+- `src/lib/api.ts` — all data access + backend-function invocations.
+- `src/lib/types.ts` — shared row types. `src/lib/status.ts` — status labels/colors.
+- `src/context/AuthContext.tsx` + `RequireRole` — auth + role-based routing.
+
+### Backend functions (Deno, one responsibility each)
+| Function | Purpose |
+|----------|---------|
+| `analyze-job` | LLM job analysis → required/preferred skills, competencies |
+| `ats-screen` | LLM resume profile + reasoned match score, gaps, evidence |
+| `interview-question` | Adaptive interview: next question, scores answers, completes the session, enforces proctoring lock |
+| `hr-recommend` | LLM candidate comparison + recommendation across a job's pipeline |
+| `proctoring-start / heartbeat / terminate / event` | Interview integrity: session, heartbeat sweep, violation policy, audit |
+| `verify-start` | Resume verification consent / decline (opt-in, source handles) |
+| `verify-run` | Claim extraction → GitHub public fetch (artifacts) → verdicts → credibility band → recruiter brief |
+| `verify-explain` | Candidate explanations for flagged claims (owner-only) |
+
+### Database (Enter Cloud, all tables RLS-enabled)
+- `users` (hr/candidate), `organizations`, `jobs` (incl. proctoring config), `candidates`
+- `applications` (resume text/URL, status), `evaluations` (ATS + interview), `interviews`, `interview_answers`
+- `decisions`, `proctoring_sessions`, `proctoring_events`
+- `resume_verifications` + `verification_claims` + `verification_artifacts` + `verification_events`
+- Row access is scoped by `can_access_application()` / `is_org_member()` etc. — candidates see only
+  their own applications; HR only their organization's. All writes for the AI stages happen
+  server-side in backend functions (service role), never on the client.
+
+---
+
+## 5. Running locally
 
 ```bash
-# Step 1: Clone your project repository
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate into the project folder
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install all dependencies
 pnpm install
-
-# Step 4: Start the local development server
 pnpm dev
 ```
 
-Push your commits — Enter.pro will automatically detect and sync your latest changes.
+Type-check / lint / build:
 
----
-
-## i18n
-
-This template ships a minimal browser-side i18n baseline built on:
-
-- `i18next`
-- `react-i18next`
-- `i18next-http-backend`
-- `i18next-browser-languagedetector`
-
-### Source-of-truth files
-
-The template only owns three pieces of i18n data:
-
-- `i18n.config.json` — language manifest (`fallbackLng`, `languages[].{code,label,detect,dir}`)
-- `public/locales/{code}.json` — flat dotted-key translations, one file per language
-- `src/i18n/config.ts` + `src/i18n/util.ts` — runtime entry and pure helpers
-- `src/components/language-switcher.tsx` — neutral-themed UI sample
-
-### Runtime behavior
-
-- reads the manifest from `i18n.config.json`
-- loads translations from `public/locales/{code}.json` via `i18next-http-backend`
-- detects language from cookie, browser, then html tag; caches in the `i18next` cookie
-- normalizes unsupported languages to `fallbackLng` (no invalid values stored in cookies)
-- syncs `<html lang>` and `<html dir>` on init and on `languageChanged`
-- treats keys as flat strings: both `keySeparator` and `nsSeparator` are disabled
-
-### Using translations in components
-
-Import directly from `react-i18next`. No project-specific hook or cast is needed.
-
-```tsx
-import { useTranslation } from "react-i18next";
-
-const Title = () => {
-  const { t } = useTranslation();
-  return <h1>{t("home.hero.title")}</h1>;
-};
+```bash
+pnpm check      # eslint + tsc --noEmit
+pnpm build      # production build
 ```
 
-For language switching, the `i18n` instance also comes from `useTranslation()`:
+---
 
-```tsx
-const { i18n } = useTranslation();
-void i18n.changeLanguage("zh-CN");
-```
+## 6. 3–4 minute demo script
 
-`languageOptions`, `normalizeLanguage`, `getLanguageDirection`, and `fallbackLng` can be imported from `@/i18n/config` (re-exports from `util.ts`).
+**Recommended setup before presenting:** create the HR account and one candidate account, and have a
+ready resume (PDF/text) plus the candidate's GitHub username ready to paste. Log out before starting.
 
-### Adding a language
+### 0:00 – 0:20 · Hook (Innovation)
+> "Recruiting is drowning in resumes and biased, black-box tools. INNOWISE is a hiring copilot with a
+> difference: the AI does the heavy lifting — analyzing jobs, screening resumes, running interviews,
+> and even checking claims against public evidence — but the recruiter makes every final call. No
+> auto-rejects. Ever."
 
-1. Add an entry under `languages` in `i18n.config.json` with `code`, `label`, `detect`, `dir`.
-2. Create `public/locales/{code}.json` with the same key set as `public/locales/{fallbackLng}.json`.
-3. Translate values, preserving any `{{variables}}` and `<tag>...</tag>` structures.
+### 0:20 – 0:45 · Land + create a job (Tech stack + AI analysis)
+- Land on the animated hero (React Three Fiber + GSAP). "Built on React + TypeScript + Tailwind."
+- Sign in as HR → **Jobs → Create job** → paste a short description → "Create & run AI analysis".
+- Show the extracted **required skills, preferred skills, competencies**.
 
-### Adding a translation key
+### 0:45 – 1:20 · Candidate applies → AI screening (Technical execution)
+- Switch to the candidate account → **Find jobs → Apply** → upload the resume.
+- ATS runs: show the **match score, matched skills, skill gaps, and the AI's quoted evidence**.
+  "This isn't keyword matching — the model reasons about the resume against the job and quotes the
+  evidence behind every score."
 
-1. Add the key to `public/locales/{fallbackLng}.json` first.
-2. Add the same key to every other locale file with its translated value.
-3. Use it via `t("group.key")` in components.
+### 1:20 – 2:00 · Resume verification (Innovation + Critical thinking)
+- On the candidate dashboard: **Resume verification → consent** → enter the GitHub username.
+- Run it: claims get extracted, checked against **public GitHub data** (artifacts with URLs are stored),
+  and each gets a verdict. Show the **credibility band, recruiter brief, and coverage statement**
+  ("5 of 9 claims checkable via public sources…").
+- Key line: "It's consent-first, it never says a candidate lied — it reports discrepancies with
+  sources — and candidates can explain flagged claims before the recruiter decides. Declining is not
+  scored against them."
 
-### Backend handoff (temporary in-repo files)
+### 2:00 – 2:50 · Adaptive AI interview + proctoring (Technical execution)
+- HR invites the candidate → **Start interview** (camera + mic start automatically).
+- Answer 1–2 questions (use the **dictation** feature to show speech-to-text).
+- Mention proctoring: "Fullscreen is locked, a heartbeat tracks the session, and any integrity
+  violation terminates the session and flags it for the recruiter — who can still override."
 
-The following files are **temporary copies kept in the repo only until backend integration is complete**. The backend will eventually own validation, statistics, completion-rate dashboards, scan-for-new-strings, and auto-translate. After that integration lands, these files (and the corresponding `package.json` scripts) will be removed:
+### 2:50 – 3:25 · HR decides (Human-in-the-loop + Presentation)
+- Back to HR → job detail: the candidate card now shows ATS score, interview evaluation, and the
+  verification band. Run **AI recommendation** → "compare candidates" ranking.
+- Record the decision. "AI recommends, HR decides — that's the whole philosophy, and every stage is
+  stored and audited."
 
-- `scripts/check-i18n.mjs`, `scripts/scan-i18n.mjs`, `scripts/i18n-utils.mjs`, `scripts/i18n-source-usage.mjs`
-- `i18n.scan.json`
-- `reports/i18n/`
-- `docs/i18n-agent-spec.md`, `docs/i18n-contract.md`
-- `package.json` scripts: `i18n:check`, `i18n:scan`, and the `check` aggregate
-
-Until removed, you can still run `pnpm i18n:check` and `pnpm i18n:scan` locally; the canonical computation is the backend's responsibility.
+### 3:25 – 3:40 · Close
+> "From job post to hiring decision in one place — with reasoning, evidence, integrity, and a human
+> at the center. Thank you."
 
 ---
 
-## Tech stack
+## 7. Demo scoring cheat-sheet (aligns with judging criteria)
 
-This project uses:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
----
-
-## Deployment
-
-To deploy, open your Enter.pro project and click "Publish"
-
-Your app will automatically build and go live at your production URL.
+- **Innovation** → resume verification with evidence artifacts + candidate explanations; reasoning
+  ATS; proctored in-browser interviews; human-in-the-loop everywhere.
+- **Technical execution** → React + TypeScript + Tailwind/shadcn, Enter Cloud (Postgres + RLS +
+  backend functions), structured-JSON LLM pipeline (GPT 5.6 Luna, Responses protocol), GitHub API
+  integration with rate-limit handling, Web APIs (MediaRecorder, Speech, Fullscreen), audit logging.
+- **Presentation** → clear story arc (create → screen → verify → interview → decide), real UI with
+  live data, one clean demo path (set up accounts + resume before you present).
+- **Critical thinking** → mention the trade-offs you handled: GitHub rate limits (graceful
+  degradation), LinkedIn without OAuth (self-report, never counted as evidence), verification never
+  auto-rejects, no verdict claims beyond the fetched evidence, RLS protecting every table, and that
+  the AI is advisory by design.
 
 ---
 
-✨ Keep prompting, keep building — Enter.pro handles the rest.
+*Project by the INNOWISE team. Deployed via Enter.*

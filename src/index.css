@@ -288,3 +288,178 @@
   color: #ffffff;
   box-shadow: 0 12px 26px -12px hsl(32 95% 44% / 0.6);
 }
+
+/* ==========================================================================
+   INNOWISE SCROLL-ANIMATED LANDING
+   Palette (strict): cream #F5EDE3, tan #E8D5BC, amber #E8A33D,
+   burnt-orange #C97B2C, deep brown #7A4A22 — JetBrains Mono throughout.
+   ========================================================================== */
+.land-mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* warm radial wash: cream top-left → tan bottom-right */
+.land-wrap {
+  background-color: #f5ede3;
+  background-image: radial-gradient(
+      1100px 900px at 0% 0%,
+      #f5ede3 0%,
+      rgba(245, 237, 227, 0) 55%
+    ),
+    radial-gradient(
+      1100px 900px at 100% 100%,
+      #e8d5bc 0%,
+      rgba(232, 213, 188, 0) 60%
+    );
+}
+
+/* faint 60px stone grid, ~4% */
+.land-grid {
+  background-image: linear-gradient(
+      to right,
+      rgba(122, 74, 34, 0.04) 1px,
+      transparent 1px
+    ),
+    linear-gradient(to bottom, rgba(122, 74, 34, 0.04) 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: radial-gradient(ellipse 90% 75% at 50% 30%, black 35%, transparent 100%);
+}
+
+/* drifting amber glow blobs */
+.land-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.orb-a {
+  background: #e8a33d;
+  animation: orbDriftA 20s ease-in-out infinite;
+}
+.orb-b {
+  background: #e8d5bc;
+  animation: orbDriftB 20s ease-in-out infinite;
+}
+@keyframes orbDriftA {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(46px, -34px) scale(1.12);
+  }
+}
+@keyframes orbDriftB {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1.06);
+  }
+  50% {
+    transform: translate(-46px, 34px) scale(0.94);
+  }
+}
+
+/* floating glassmorphic navbar pill */
+.nav-pill {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(122, 74, 34, 0.12);
+  box-shadow: 0 10px 32px -16px rgba(122, 74, 34, 0.3);
+  transition: padding 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s ease,
+    box-shadow 0.3s ease, backdrop-filter 0.3s ease;
+}
+.nav-pill.shrunk {
+  padding-top: 0.45rem !important;
+  padding-bottom: 0.45rem !important;
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  box-shadow: 0 14px 44px -16px rgba(122, 74, 34, 0.42);
+}
+
+/* buttons */
+.btn-ghost-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 9999px;
+  padding: 0.6rem 1.3rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #7a4a22;
+  border: 1px solid rgba(122, 74, 34, 0.35);
+  background: transparent;
+  transition: all 0.2s ease;
+}
+.btn-ghost-pill:hover {
+  background: rgba(232, 163, 61, 0.14);
+  border-color: #e8a33d;
+}
+.btn-solid-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 9999px;
+  padding: 0.6rem 1.3rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #fff;
+  background: linear-gradient(120deg, #c97b2c, #7a4a22);
+  box-shadow: 0 10px 24px -12px rgba(122, 74, 34, 0.55);
+  transition: all 0.2s ease;
+}
+.btn-ghost-pill:hover,
+.btn-solid-pill:hover {
+  transform: scale(1.03);
+  box-shadow: 0 14px 34px -12px rgba(122, 74, 34, 0.6);
+}
+.btn-ghost-pill:active,
+.btn-solid-pill:active {
+  transform: scale(0.97);
+}
+
+/* glass cards (features + CTA) */
+.glass-card {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(122, 74, 34, 0.1);
+  border-radius: 24px;
+  box-shadow: 0 18px 44px -22px rgba(122, 74, 34, 0.3);
+  transition: transform 0.2s ease-out, box-shadow 0.2s ease-out,
+    border-color 0.2s ease-out;
+}
+.glass-card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(232, 163, 61, 0.55);
+  box-shadow: 0 28px 64px -26px rgba(201, 123, 44, 0.5);
+}
+.glass-card:hover .card-icon {
+  transform: rotate(6deg);
+}
+.card-icon {
+  transition: transform 0.2s ease-out;
+}
+
+/* shared reveal easing */
+.land-ease {
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .land-orb,
+  .orb-a,
+  .orb-b {
+    animation: none !important;
+  }
+  .land-mono,
+  .nav-pill,
+  .btn-ghost-pill,
+  .btn-solid-pill,
+  .glass-card,
+  .card-icon {
+    transition-duration: 0.01ms !important;
+  }
+}

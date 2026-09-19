@@ -1,54 +1,23 @@
-import { useRef, type MouseEvent } from "react";
+import { useEffect, useRef } from "react";
 import { Link, Navigate } from "react-router-dom";
-import { Briefcase, Loader2, Sparkles, Users } from "lucide-react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { Edges } from "@react-three/drei";
+import * as THREE from "three";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import Lenis from "lenis";
+import { ArrowRight, Briefcase, Loader2, Sparkles, Users } from "lucide-react";
 import { useAuth } from "@/context/useAuth";
 
-/** Honey-amber glass briefcase with a burnt-amber band and clasp. */
-function AmberBriefcase() {
-  return (
-    <div className="relative flex h-20 w-24 items-center justify-center sm:h-24 sm:w-28">
-      <div className="absolute inset-0 rounded-2xl bg-amber-500/25 blur-2xl" aria-hidden />
-      <svg viewBox="0 0 120 100" className="relative h-full w-full drop-shadow-[0_14px_22px_rgba(180,83,9,0.35)]">
-        <defs>
-          <linearGradient id="amberGlass" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#fcd34d" />
-            <stop offset="0.5" stopColor="#f59e0b" />
-            <stop offset="1" stopColor="#b45309" />
-          </linearGradient>
-          <linearGradient id="amberBody" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#fbbf24" stopOpacity="0.5" />
-            <stop offset="1" stopColor="#d97706" stopOpacity="0.78" />
-          </linearGradient>
-          <linearGradient id="amberBand" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#d97706" />
-            <stop offset="1" stopColor="#92400e" />
-          </linearGradient>
-        </defs>
+gsap.registerPlugin(ScrollTrigger);
 
-        {/* handle with dark-brown edge */}
-        <path d="M46 32 V24 a14 14 0 0 1 28 0 V32" stroke="#451a03" strokeWidth="8" fill="none" strokeLinecap="round" />
-        <path d="M46 32 V24 a14 14 0 0 1 28 0 V32" stroke="url(#amberGlass)" strokeWidth="4.5" fill="none" strokeLinecap="round" />
+const reduceMotion =
+  typeof window !== "undefined" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-        {/* honey-amber glass body */}
-        <rect x="13" y="32" width="94" height="56" rx="11" fill="url(#amberBody)" stroke="#451a03" strokeWidth="3" />
-        <rect x="16" y="35" width="88" height="50" rx="9" fill="url(#amberGlass)" opacity="0.16" />
-
-        {/* burnt-amber band */}
-        <rect x="47" y="32" width="26" height="56" fill="url(#amberBand)" />
-        <rect x="50" y="32" width="20" height="56" fill="#78350f" opacity="0.5" />
-
-        {/* clasp */}
-        <rect x="53" y="27" width="14" height="11" rx="3.5" fill="url(#amberGlass)" stroke="#451a03" strokeWidth="2.5" />
-        <circle cx="60" cy="32" r="2.4" fill="#451a03" />
-
-        {/* dark brown edge details + glass shine */}
-        <rect x="16" y="35" width="88" height="4" rx="2" fill="#451a03" opacity="0.5" />
-        <path d="M22 42 h16 a7 7 0 0 1 0 14 h-16 z" fill="#ffffff" opacity="0.4" />
-        <path d="M22 68 h26" stroke="#ffffff" strokeWidth="6" strokeLinecap="round" opacity="0.22" />
-      </svg>
-    </div>
-  );
-}
+const isCoarse =
+  typeof window !== "undefined" &&
+  (window.matchMedia("(pointer: coarse)").matches || window.innerWidth < 768);
 
 const FEATURES = [
   {
@@ -68,21 +37,263 @@ const FEATURES = [
   },
 ];
 
+/* ---------------------------------------------------------------------------
+ * Low-poly honey-amber glass briefcase
+ * ------------------------------------------------------------------------- */
+function Briefcase3D({ scroll }: { scroll: { current: number } }) {
+  const group = useRef<THREE.Group>(null);
+
+  useFrame((state, delta) => {
+    const g = group.current;
+    if (!g) return;
+    const t = state.clock.elapsedTime;
+    const s = scroll.current;
+
+    if (reduceMotion) {
+      g.rotation.set(0, s * Math.PI * 2, 0);
+      g.position.set(s * 0.7, -s * 1.1, 0);
+      g.scale.setScalar(1 - s * 0.2);
+      return;
+    }
+
+    // Idle: slow continuous Y spin (~0.15 rad/s) + gentle bob
+    const idleY = t * 0.15;
+
+    // Cursor response: tilt toward pointer within ±0.35 rad, lerped softly
+    const targetY = idleY + (isCoarse ? 0 : state.pointer.x * 0.35);
+    const targetX = isCoarse ? 0 : state.pointer.y * 0.35;
+    g.rotation.x = THREE.MathUtils.lerp(g.rotation.x, targetX, 0.06);
+    g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, targetY, 0.06);
+
+    // Scroll response: extra full rotation, drift down/center, scale down ~20%
+    g.position.y = Math.sin(t * 0.8) * 0.08 - s * 1.1;
+    g.position.x = THREE.MathUtils.lerp(g.position.x, s * 0.7, 0.08);
+    g.scale.setScalar(THREE.MathUtils.lerp(g.scale.x, 1 - s * 0.2, 0.1));
+    void delta;
+  });
+
+  return (
+    <group ref={group}>
+      {/* translucent pale-yellow glass body */}
+      <mesh castShadow>
+        <boxGeometry args={[2.4, 1.5, 1.1]} />
+        <meshPhysicalMaterial
+          color="#FFEFC2"
+          transmission={0.9}
+          opacity={0.35}
+          transparent
+          roughness={0.12}
+          thickness={0.5}
+          metalness={0}
+        />
+        <Edges color="#E8A33D" />
+      </mesh>
+
+      {/* ribbed arch handle */}
+      <mesh position={[0, 0.82, 0]}>
+        <torusGeometry args={[0.42, 0.06, 12, 32, Math.PI]} />
+        <meshStandardMaterial color="#C97B2C" metalness={0.3} roughness={0.35} />
+      </mesh>
+      {[-0.52, 0, 0.52].map((x) => (
+        <mesh key={x} position={[x, 0.94, 0]}>
+          <boxGeometry args={[0.07, 0.16, 0.12]} />
+          <meshStandardMaterial color="#E8A33D" metalness={0.2} roughness={0.4} />
+        </mesh>
+      ))}
+
+      {/* orange latch bar across the middle front */}
+      <mesh position={[0, 0.05, 0.62]}>
+        <boxGeometry args={[0.7, 0.18, 0.14]} />
+        <meshStandardMaterial color="#C97B2C" metalness={0.3} roughness={0.3} />
+      </mesh>
+
+      {/* amber corner studs */}
+      {(
+        [
+          [-0.9, -0.55],
+          [0.9, -0.55],
+          [-0.9, 0.55],
+          [0.9, 0.55],
+        ] as [number, number][]
+      ).map(([x, z], i) => (
+        <mesh key={i} position={[x, 0, z * 0.62]}>
+          <sphereGeometry args={[0.06, 10, 10]} />
+          <meshStandardMaterial color="#E8A33D" metalness={0.4} roughness={0.3} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Landing
+ * ------------------------------------------------------------------------- */
 const Index = () => {
   const { user, profile, loading } = useAuth();
-  const shellRef = useRef<HTMLDivElement | null>(null);
 
-  function trackCursor(e: MouseEvent<HTMLDivElement>) {
-    const el = e.currentTarget;
-    const rect = el.getBoundingClientRect();
-    el.style.setProperty("--mx", `${e.clientX - rect.left}px`);
-    el.style.setProperty("--my", `${e.clientY - rect.top}px`);
-  }
+  const pageRef = useRef<HTMLDivElement>(null);
+  const heroRef = useRef<HTMLElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const s2Ref = useRef<HTMLElement>(null);
+  const cardsRef = useRef<HTMLElement>(null);
+  const ctaRef = useRef<HTMLElement>(null);
+  const scrollRef = useRef(0);
+
+  // Lenis smooth scroll
+  useEffect(() => {
+    if (reduceMotion) return;
+    const lenis = new Lenis({ duration: 1.2, smoothWheel: true });
+    lenis.on("scroll", ScrollTrigger.update);
+    const raf = (time: number) => lenis.raf(time * 1000);
+    gsap.ticker.add(raf);
+    gsap.ticker.lagSmoothing(0);
+    return () => {
+      gsap.ticker.remove(raf);
+      lenis.destroy();
+    };
+  }, []);
+
+  // GSAP scroll animations
+  useEffect(() => {
+    const ctx = gsap.context(() => {
+      // Briefcase scroll progress (drives the 3D tumble)
+      if (heroRef.current) {
+        ScrollTrigger.create({
+          trigger: heroRef.current,
+          start: "top top",
+          end: "bottom top",
+          onUpdate: (st) => {
+            scrollRef.current = st.progress;
+          },
+        });
+      }
+
+      // Navbar: shrink + deepen blur after 80px
+      ScrollTrigger.create({
+        start: 80,
+        onUpdate: (st) => {
+          if (!navRef.current) return;
+          if (st.scroll() > 80) navRef.current.classList.add("shrunk");
+          else navRef.current.classList.remove("shrunk");
+        },
+      });
+
+      // Orbs drift slightly with scroll
+      if (!reduceMotion) {
+        gsap.to(".orb-a", {
+          xPercent: 10,
+          yPercent: 12,
+          ease: "none",
+          scrollTrigger: {
+            trigger: pageRef.current,
+            start: "top top",
+            end: "bottom bottom",
+            scrub: 1,
+          },
+        });
+        gsap.to(".orb-b", {
+          xPercent: -10,
+          yPercent: -12,
+          ease: "none",
+          scrollTrigger: {
+            trigger: pageRef.current,
+            start: "top top",
+            end: "bottom bottom",
+            scrub: 1,
+          },
+        });
+      }
+
+      // Hero entrance
+      if (!reduceMotion) {
+        gsap.fromTo(
+          ".hero-letter",
+          { y: 90, opacity: 0, filter: "blur(10px)" },
+          {
+            y: 0,
+            opacity: 1,
+            filter: "blur(0px)",
+            duration: 0.8,
+            stagger: 0.04,
+            ease: "power3.out",
+            delay: 0.1,
+          }
+        );
+        gsap.fromTo(
+          ".hero-fade",
+          { y: 26, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.7, stagger: 0.08, ease: "power3.out", delay: 0.55 }
+        );
+      }
+
+      // Section 2: heading lines wipe up, body fades after
+      if (!reduceMotion && s2Ref.current) {
+        gsap.fromTo(
+          ".s2-line",
+          { clipPath: "inset(0 0 100% 0)", y: 14 },
+          {
+            clipPath: "inset(0 0 0% 0)",
+            y: 0,
+            duration: 0.8,
+            stagger: 0.14,
+            ease: "power3.out",
+            scrollTrigger: { trigger: s2Ref.current, start: "top 70%", once: true },
+          }
+        );
+        gsap.fromTo(
+          ".s2-body",
+          { opacity: 0, y: 16 },
+          {
+            opacity: 1,
+            y: 0,
+            duration: 0.6,
+            delay: 0.15,
+            ease: "power3.out",
+            scrollTrigger: { trigger: s2Ref.current, start: "top 70%", once: true },
+          }
+        );
+      }
+
+      // Section 3: feature cards stagger in
+      if (!reduceMotion && cardsRef.current) {
+        gsap.fromTo(
+          ".feat-card",
+          { opacity: 0, y: 40, scale: 0.96 },
+          {
+            opacity: 1,
+            y: 0,
+            scale: 1,
+            duration: 0.7,
+            stagger: 0.12,
+            ease: "power3.out",
+            scrollTrigger: { trigger: cardsRef.current, start: "top 78%", once: true },
+          }
+        );
+      }
+
+      // Section 4: CTA band scales up
+      if (!reduceMotion && ctaRef.current) {
+        gsap.fromTo(
+          ".cta-band",
+          { opacity: 0, scale: 0.95 },
+          {
+            opacity: 1,
+            scale: 1,
+            duration: 0.7,
+            ease: "power3.out",
+            scrollTrigger: { trigger: ctaRef.current, start: "top 80%", once: true },
+          }
+        );
+      }
+    }, pageRef);
+
+    return () => ctx.revert();
+  }, []);
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F5F3EE]">
-        <Loader2 className="h-6 w-6 animate-spin text-[#B45309]" />
+      <div className="land-mono flex min-h-screen items-center justify-center bg-[#F5EDE3]">
+        <Loader2 className="h-6 w-6 animate-spin text-[#7A4A22]" />
       </div>
     );
   }
@@ -93,56 +304,130 @@ const Index = () => {
 
   return (
     <div
-      ref={shellRef}
-      onMouseMove={trackCursor}
-      className="landing-root relative flex min-h-screen flex-col overflow-hidden bg-[#F5F3EE]"
+      ref={pageRef}
+      className="land-mono land-wrap relative min-h-screen overflow-x-clip text-[#7A4A22]"
     >
-      {/* background atmosphere */}
-      <div className="landing-grid absolute inset-0" aria-hidden />
-      <div className="landing-orb orb-peach h-72 w-72 -left-24 top-10" aria-hidden />
-      <div className="landing-orb orb-butter h-80 w-80 -right-28 top-1/3" aria-hidden />
-      <div className="landing-orb orb-peach h-56 w-56 bottom-0 left-1/4" aria-hidden />
-      <div className="cursor-light absolute inset-0" aria-hidden />
+      {/* fixed atmosphere: grid + drifting amber blobs */}
+      <div className="pointer-events-none fixed inset-0 z-0" aria-hidden>
+        <div className="land-grid absolute inset-0" />
+        <div className="land-orb orb-a left-[-8rem] top-[-7rem] h-96 w-96" />
+        <div className="land-orb orb-b right-[-7rem] top-1/3 h-[26rem] w-[26rem]" />
+      </div>
 
-      {/* hero */}
-      <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
-        <div className="mb-8">
-          <AmberBriefcase />
-        </div>
-
-        <h1 className="amber-gradient-text text-[2.6rem] font-bold leading-tight tracking-tight sm:text-6xl">
-          INNOWISE
-        </h1>
-
-        <p className="mt-5 max-w-xl text-[15px] leading-relaxed text-[#57534E]">
-          AI-powered HR workforce management. Create jobs, let AI screen resumes,
-          run adaptive interviews and make data-driven hiring decisions.
-        </p>
-
-        <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
-          <Link to="/signup" className="btn-amber">
-            <Sparkles className="h-4 w-4" />
-            Create an account
-          </Link>
-          <Link to="/login" className="btn-outline-warm">
-            Sign in
-          </Link>
-        </div>
-
-        {/* feature cards */}
-        <div className="mt-14 grid w-full max-w-3xl grid-cols-1 gap-4 text-left sm:grid-cols-3">
-          {FEATURES.map((f) => (
-            <div key={f.title} className="landing-card p-5">
-              <f.icon className="mb-3 h-5 w-5 text-[#B45309]" strokeWidth={2} />
-              <div className="text-[15px] font-semibold text-[#1C1917]">{f.title}</div>
-              <div className="mt-1.5 text-[13px] leading-relaxed text-[#57534E]">{f.desc}</div>
+      <div className="relative z-10">
+        {/* NAVBAR */}
+        <header className="sticky top-6 z-50 flex justify-center px-4">
+          <nav
+            ref={navRef}
+            className="nav-pill flex w-full max-w-[1200px] items-center justify-between rounded-full px-6 py-3"
+          >
+            <Link to="/" className="flex items-center gap-2.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#E8A33D]" />
+              <span className="text-sm font-bold tracking-wide text-[#7A4A22]">INNOWISE</span>
+            </Link>
+            <div className="flex items-center gap-2">
+              <Link to="/login" className="btn-ghost-pill">
+                Sign in
+              </Link>
+              <Link to="/signup" className="btn-solid-pill">
+                Create an account
+              </Link>
             </div>
-          ))}
-        </div>
+          </nav>
+        </header>
 
-        <p className="mt-10 text-[11px] uppercase tracking-[0.22em] text-[#57534E]/70">
-          AI only recommends · you make the final call
-        </p>
+        {/* HERO — two-column split */}
+        <section
+          ref={heroRef}
+          className="relative mx-auto grid min-h-[100svh] w-full max-w-[1200px] grid-cols-1 items-center gap-6 px-6 pb-16 pt-28 lg:grid-cols-2"
+        >
+          <div className="relative z-0">
+            <h1 className="whitespace-nowrap text-[#7A4A22] text-[clamp(3.5rem,9vw,8rem)] font-bold leading-none tracking-tight">
+              {"INNOWISE".split("").map((ch, i) => (
+                <span key={i} className="hero-letter inline-block will-change-transform">
+                  {ch}
+                </span>
+              ))}
+            </h1>
+            <p className="hero-fade mt-7 max-w-xl text-[15px] leading-relaxed text-[#7A4A22]/80">
+              AI-powered HR workforce management:{" "}
+              <span className="font-bold text-[#7A4A22]">create jobs</span>, screen resumes,
+              interview adaptively, and hire with data.
+            </p>
+            <div className="hero-fade mt-8 flex flex-wrap items-center gap-4">
+              <Link to="/signup" className="btn-solid-pill px-7 py-3 text-base">
+                Create an account <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link to="/login" className="btn-ghost-pill px-7 py-3 text-base">
+                Sign in
+              </Link>
+            </div>
+          </div>
+
+          {/* 3D briefcase — transparent canvas overlapping the wordmark */}
+          <div className="relative z-10 h-[52vh] lg:-ml-24 lg:h-[82vh]">
+            <Canvas
+              dpr={[1, 2]}
+              camera={{ position: [0, 0.4, 6.4], fov: 42 }}
+              gl={{ alpha: true, antialias: true }}
+              style={{ background: "transparent" }}
+            >
+              <ambientLight intensity={0.55} />
+              <directionalLight position={[5, 7, 5]} intensity={1.5} color="#FFE9C4" />
+              <directionalLight position={[-5, -2, -4]} intensity={0.6} color="#FFB98A" />
+              <pointLight position={[-3, 1, 3]} intensity={0.5} color="#E8A33D" />
+              <Briefcase3D scroll={scrollRef} />
+            </Canvas>
+          </div>
+        </section>
+
+        {/* SECTION 2 — statement */}
+        <section ref={s2Ref} className="mx-auto max-w-[1200px] px-6 py-28">
+          <h2 className="text-[#7A4A22] text-[clamp(2rem,5vw,4rem)] font-bold leading-[1.05] tracking-tight">
+            <span className="s2-line block">From job post to hiring</span>
+            <span className="s2-line block">decision, in one place.</span>
+          </h2>
+          <p className="s2-body mt-6 max-w-lg text-[15px] leading-relaxed text-[#7A4A22]/75">
+            Create a job and INNOWISE&rsquo;s AI handles the heavy lifting at every stage.
+          </p>
+        </section>
+
+        {/* SECTION 3 — feature cards */}
+        <section ref={cardsRef} className="mx-auto max-w-[1200px] px-6 pb-28">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+            {FEATURES.map((f) => (
+              <div key={f.title} className="feat-card glass-card p-8">
+                <div className="card-icon mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#E8A33D]/20 text-[#C97B2C]">
+                  <f.icon className="h-6 w-6" />
+                </div>
+                <div className="text-[17px] font-bold text-[#7A4A22]">{f.title}</div>
+                <p className="mt-2 text-[13.5px] leading-relaxed text-[#7A4A22]/70">{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* SECTION 4 — CTA band */}
+        <section ref={ctaRef} className="mx-auto max-w-[1200px] px-6 pb-28">
+          <div className="cta-band glass-card flex flex-col items-center gap-7 px-8 py-16 text-center">
+            <h3 className="text-[#7A4A22] text-[clamp(1.8rem,4vw,3rem)] font-bold tracking-tight">
+              Start hiring with INNOWISE.
+            </h3>
+            <div className="flex flex-wrap justify-center gap-4">
+              <Link to="/signup" className="btn-solid-pill px-7 py-3 text-base">
+                Create an account
+              </Link>
+              <Link to="/login" className="btn-ghost-pill px-7 py-3 text-base">
+                Sign in
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        {/* FOOTER */}
+        <footer className="pb-10 pt-4 text-center text-xs text-[#7A4A22]/60">
+          &copy; 2026 INNOWISE. All rights reserved.
+        </footer>
       </div>
     </div>
   );

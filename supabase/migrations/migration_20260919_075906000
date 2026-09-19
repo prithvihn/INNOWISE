@@ -1,0 +1,54 @@
+-- INNOWISE interview proctoring
+
+alter table public.jobs add column if not exists proctoring_enabled boolean not null default true;
+alter table public.jobs add column if not exists proctoring_violation_policy text not null default 'terminate_immediately';
+alter table public.jobs add column if not exists proctoring_warning_allowance int not null default 1;
+alter table public.jobs add column if not exists proctoring_grace_period_ms int not null default 400;
+alter table public.jobs drop constraint if exists jobs_proctoring_violation_policy_check;
+alter table public.jobs add constraint jobs_proctoring_violation_policy_check check (proctoring_violation_policy in ('terminate_immediately','warn_then_terminate'));
+
+alter table public.interviews drop constraint if exists interviews_status_check;
+alter table public.interviews add constraint interviews_status_check check (status in ('invited','in_progress','completed','terminated'));
+
+alter table public.applications drop constraint if exists applications_status_check;
+alter table public.applications add constraint applications_status_check check (status in ('applied','screening','screening_done','interview_invited','interview_in_progress','interview_done','interview_terminated','decided'));
+
+create table if not exists public.proctoring_sessions (
+  id uuid primary key default gen_random_uuid(),
+  interview_id uuid not null references public.interviews(id) on delete cascade,
+  application_id uuid not null references public.applications(id) on delete cascade,
+  candidate_id uuid not null references public.candidates(id) on delete cascade,
+  status text not null default 'ACTIVE' check (status in ('ACTIVE','ABANDONED','TERMINATED_INTEGRITY_VIOLATION','COMPLETED')),
+  token text not null unique,
+  started_at timestamptz not null default now(),
+  last_heartbeat_at timestamptz not null default now(),
+  heartbeat_count int not null default 0,
+  question_index int,
+  elapsed_ms int,
+  violation_type text,
+  violation_detail jsonb,
+  terminated_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_proc_sessions_interview on public.proctoring_sessions(interview_id);
+create index if not exists idx_proc_sessions_app on public.proctoring_sessions(application_id);
+create index if not exists idx_proc_sessions_status on public.proctoring_sessions(status);
+
+create table if not exists public.proctoring_events (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid references public.proctoring_sessions(id) on delete cascade,
+  application_id uuid,
+  candidate_id uuid,
+  event_type text not null,
+  detail jsonb,
+  created_at timestamptz not null default now(),
+  user_agent text
+);
+create index if not exists idx_proc_events_session on public.proctoring_events(session_id);
+create index if not exists idx_proc_events_candidate on public.proctoring_events(candidate_id);
+
+-- RLS: candidates + HR can read their own sessions/audit; writes happen via backend functions.
+alter table public.proctoring_sessions enable row level security;
+alter table public.proctoring_events enable row level security;
+create policy "proc_sessions_select" on public.proctoring_sessions for select to authenticated using (can_access_application(application_id));
+create policy "proc_events_select" on public.proctoring_events for select to authenticated using (can_access_application(application_id));

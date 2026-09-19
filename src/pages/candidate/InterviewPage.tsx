@@ -11,8 +11,11 @@ import {
   MessagesSquare,
   Mic,
   MicOff,
+  MonitorUp,
   Send,
+  ShieldAlert,
   Sparkles,
+  TriangleAlert,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,8 +30,19 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/context/useAuth";
-import { interviewAnswer, interviewStart, uploadInterviewRecording } from "@/lib/api";
+import {
+  interviewAnswer,
+  interviewStart,
+  proctoringStart,
+  uploadInterviewRecording,
+  type ProctoringPolicy,
+} from "@/lib/api";
+import { useProctoring, type TerminatedInfo } from "@/hooks/useProctoring";
 import { interviewResultLabel, scoreColor } from "@/lib/status";
+
+const MOBILE_UA =
+  typeof navigator !== "undefined" &&
+  /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(navigator.userAgent);
 
 interface QuestionState {
   interviewId: string;
@@ -174,6 +188,95 @@ export default function InterviewPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const mediaInitRef = useRef(false);
+
+  // Proctoring state
+  const [procPhase, setProcPhase] = useState<"gate" | "starting" | "active" | "terminated">("gate");
+  const [procToken, setProcToken] = useState<string | null>(null);
+  const [procPolicy, setProcPolicy] = useState<ProctoringPolicy | null>(null);
+  const [procBlocker, setProcBlocker] = useState<string | null>(null);
+  const [procFullscreenMsg, setProcFullscreenMsg] = useState<string | null>(null);
+  const [warnRemaining, setWarnRemaining] = useState<number | null>(null);
+  const [terminalInfo, setTerminalInfo] = useState<TerminatedInfo | null>(null);
+  const interviewId = question?.interviewId ?? null;
+
+  const proc = useProctoring({
+    token: procToken,
+    policy: procPolicy,
+    getQuestionIndex: () => question?.index ?? 1,
+    onTerminated: (info) => {
+      setTerminalInfo(info);
+      setProcPhase("terminated");
+    },
+    onWarning: (remaining) => setWarnRemaining(remaining),
+    onWarningResolved: () => setWarnRemaining(null),
+  });
+
+  async function beginProctoring() {
+    if (!interviewId || procPhase !== "gate") return;
+    if (typeof document !== "undefined" && !document.fullscreenEnabled) {
+      setProcBlocker(
+        "Fullscreen is not available in this browser. Please use a supported desktop browser (Chrome, Edge, Firefox, Safari)."
+      );
+      return;
+    }
+    if (typeof document !== "undefined" && typeof document.visibilityState === "undefined") {
+      setProcBlocker("The Page Visibility API is unavailable in this browser. Please use a supported desktop browser.");
+      return;
+    }
+    if (MOBILE_UA) {
+      setProcBlocker(
+        "The proctored interview is desktop-only. Please open this interview in a desktop browser — the interview cannot be proctored on a phone or tablet."
+      );
+      return;
+    }
+
+    setProcPhase("starting");
+    setProcFullscreenMsg(null);
+    try {
+      const res = await proctoringStart(interviewId);
+      if (!res.ok || res.error) {
+        setProcBlocker(res.error || "Could not start the proctored session. Please try again.");
+        setProcPhase("gate");
+        return;
+      }
+      if (res.enabled === false) {
+        // Proctoring is disabled for this job — run the interview normally.
+        setProcPhase("active");
+        return;
+      }
+      if (res.locked) {
+        setTerminalInfo({
+          outcome: "REJECTED",
+          reason_code: "INTEGRITY_VIOLATION",
+          reason_detail: `This session has been locked by the proctoring system (${res.status}).`,
+        });
+        setProcPhase("terminated");
+        return;
+      }
+      const entered = await proc.start();
+      if (!entered) {
+        setProcFullscreenMsg(
+          "Fullscreen was not allowed. Fullscreen is required for the proctored interview. Please allow fullscreen and try again."
+        );
+        setProcPhase("gate");
+        return;
+      }
+      setProcToken(res.token ?? null);
+      setProcPolicy(res.policy ?? null);
+      setProcPhase("active");
+    } catch (err) {
+      setProcBlocker(err instanceof Error ? err.message : "Could not start the proctored session.");
+      setProcPhase("gate");
+    }
+  }
+
+  // Normal interview completion: release fullscreen + stop monitoring.
+  useEffect(() => {
+    if (complete) {
+      setProcToken(null);
+      setWarnRemaining(null);
+    }
+  }, [complete]);
 
   // Recording state
   const [recording, setRecording] = useState(false);
@@ -672,8 +775,129 @@ export default function InterviewPage() {
     );
   }
 
+  /* ---------------------------- Terminal screen --------------------------- */
+  if (procPhase === "terminated" && terminalInfo) {
+    return (
+      <div className="mx-auto max-w-xl space-y-6">
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+            <ShieldAlert className="h-10 w-10 text-destructive" />
+            <h2 className="text-xl font-bold tracking-tight">Interview ended</h2>
+            <Badge variant="destructive" className="px-3 py-1">
+              {terminalInfo.reason_code === "INTEGRITY_VIOLATION"
+                ? "Terminated — integrity violation"
+                : "Terminated"}
+            </Badge>
+            <p className="max-w-md text-sm text-muted-foreground">
+              Reason: {terminalInfo.reason_detail}
+            </p>
+            <p className="max-w-md text-xs text-muted-foreground">
+              {terminalInfo.answered_questions != null &&
+                `${terminalInfo.answered_questions} question(s) answered before termination. `}
+              Ended {terminalInfo.terminated_at ? new Date(terminalInfo.terminated_at).toLocaleString() : "just now"}.
+            </p>
+            <p className="max-w-md text-xs text-muted-foreground">
+              This session cannot be resumed or restarted. To appeal, contact the recruiter who invited you.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  /* ---------------------------- Pre-interview gate ------------------------ */
+  if (procPhase === "gate" || procPhase === "starting") {
+    const blocked = !!procBlocker;
+    return (
+      <div className="mx-auto max-w-xl space-y-6">
+        <Card>
+          <CardContent className="space-y-5 p-6 sm:p-8">
+            <div className="flex items-start gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <MonitorUp className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold leading-tight">
+                  Proctored interview — please read before starting
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  INNOWISE monitors your interview session for integrity. Here is exactly what
+                  that means.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2 text-sm">
+              <div className="rounded-lg border p-3">
+                <span className="font-medium">What is monitored:</span>
+                <ul className="mt-1.5 list-disc space-y-1 pl-5 text-muted-foreground">
+                  <li>Tab / window focus and switching away</li>
+                  <li>Fullscreen state (leaving fullscreen)</li>
+                  <li>Page visibility (minimizing or backgrounding the tab)</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border p-3">
+                <span className="font-medium">What is NOT monitored:</span>
+                <ul className="mt-1.5 list-disc space-y-1 pl-5 text-muted-foreground">
+                  <li>Camera, microphone, screen or keystroke capture (unless already in use for
+                    this interview)</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                <TriangleAlert className="mr-1 inline h-4 w-4" />
+                <strong>Consequence:</strong> Leaving this tab or exiting fullscreen will end your
+                interview immediately and it will be marked as terminated.
+              </div>
+            </div>
+
+            <p className="text-sm text-muted-foreground">
+              Before starting: close other tabs, silence notifications, and disable any screen
+              sharing.
+            </p>
+
+            {procFullscreenMsg && (
+              <p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+                {procFullscreenMsg}
+              </p>
+            )}
+
+            {blocked ? (
+              <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {procBlocker}
+              </p>
+            ) : (
+              <Button className="w-full" disabled={procPhase === "starting"} onClick={beginProctoring}>
+                {procPhase === "starting" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ShieldAlert className="h-4 w-4" />
+                )}
+                {procPhase === "starting" ? "Starting…" : "I understand, start interview"}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
+      {warnRemaining != null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6">
+          <Card className="w-full max-w-md border-warning/50">
+            <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
+              <TriangleAlert className="h-8 w-8 text-warning" />
+              <h3 className="text-lg font-semibold">Warning — return to the interview</h3>
+              <p className="text-sm text-muted-foreground">
+                You left the interview window. You have{" "}
+                {warnRemaining > 0 ? `${warnRemaining} warning${warnRemaining === 1 ? "" : "s"} left` : "no warnings left"}
+                — the next violation will end your interview.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
       <div>
         <div className="mb-2 flex items-center justify-between">
           <span className="flex items-center gap-2 text-sm font-medium">

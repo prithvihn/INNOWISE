@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   BrainCircuit,
+  ShieldAlert,
   Loader2,
   MessagesSquare,
   Scale,
@@ -332,6 +333,24 @@ function CandidateRowView({
             </span>
           </div>
         )}
+
+        {entry.proctoring &&
+          entry.proctoring.status === "TERMINATED_INTEGRITY_VIOLATION" && (
+            <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+              <span className="flex items-center gap-1.5 font-medium text-destructive">
+                <ShieldAlert className="h-4 w-4" /> Integrity violation — interview terminated
+              </span>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {entry.proctoring.violation_type ?? "Unknown violation"} at question{" "}
+                {entry.proctoring.question_index ?? "?"} — ended{" "}
+                {entry.proctoring.terminated_at
+                  ? new Date(entry.proctoring.terminated_at).toLocaleString()
+                  : "unknown time"}
+                . Partial answers are preserved for review, but this session is not a valid
+                assessment. You may override with your own final decision below.
+              </p>
+            </div>
+          )}
 
         <div className="mt-4 flex flex-wrap gap-2">
           {!invited && !decided && (

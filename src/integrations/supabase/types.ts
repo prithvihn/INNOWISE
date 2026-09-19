@@ -3619,6 +3619,10 @@ export type Database = {
           experience_years: number
           id: string
           organization_id: string
+          proctoring_enabled: boolean
+          proctoring_grace_period_ms: number
+          proctoring_violation_policy: string
+          proctoring_warning_allowance: number
           required_skills: string[]
           responsibilities: string
           status: string
@@ -3631,6 +3635,10 @@ export type Database = {
           experience_years?: number
           id?: string
           organization_id: string
+          proctoring_enabled?: boolean
+          proctoring_grace_period_ms?: number
+          proctoring_violation_policy?: string
+          proctoring_warning_allowance?: number
           required_skills?: string[]
           responsibilities?: string
           status?: string
@@ -3643,6 +3651,10 @@ export type Database = {
           experience_years?: number
           id?: string
           organization_id?: string
+          proctoring_enabled?: boolean
+          proctoring_grace_period_ms?: number
+          proctoring_violation_policy?: string
+          proctoring_warning_allowance?: number
           required_skills?: string[]
           responsibilities?: string
           status?: string
@@ -3674,6 +3686,119 @@ export type Database = {
           name?: string
         }
         Relationships: []
+      }
+      proctoring_events: {
+        Row: {
+          application_id: string | null
+          candidate_id: string | null
+          created_at: string
+          detail: Json | null
+          event_type: string
+          id: string
+          session_id: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          application_id?: string | null
+          candidate_id?: string | null
+          created_at?: string
+          detail?: Json | null
+          event_type: string
+          id?: string
+          session_id?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          application_id?: string | null
+          candidate_id?: string | null
+          created_at?: string
+          detail?: Json | null
+          event_type?: string
+          id?: string
+          session_id?: string | null
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proctoring_events_session_id_fkey"
+            columns: ["session_id"]
+            referencedRelation: "proctoring_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      proctoring_sessions: {
+        Row: {
+          application_id: string
+          candidate_id: string
+          created_at: string
+          elapsed_ms: number | null
+          heartbeat_count: number
+          id: string
+          interview_id: string
+          last_heartbeat_at: string
+          question_index: number | null
+          started_at: string
+          status: string
+          terminated_at: string | null
+          token: string
+          violation_detail: Json | null
+          violation_type: string | null
+        }
+        Insert: {
+          application_id: string
+          candidate_id: string
+          created_at?: string
+          elapsed_ms?: number | null
+          heartbeat_count?: number
+          id?: string
+          interview_id: string
+          last_heartbeat_at?: string
+          question_index?: number | null
+          started_at?: string
+          status?: string
+          terminated_at?: string | null
+          token: string
+          violation_detail?: Json | null
+          violation_type?: string | null
+        }
+        Update: {
+          application_id?: string
+          candidate_id?: string
+          created_at?: string
+          elapsed_ms?: number | null
+          heartbeat_count?: number
+          id?: string
+          interview_id?: string
+          last_heartbeat_at?: string
+          question_index?: number | null
+          started_at?: string
+          status?: string
+          terminated_at?: string | null
+          token?: string
+          violation_detail?: Json | null
+          violation_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proctoring_sessions_application_id_fkey"
+            columns: ["application_id"]
+            referencedRelation: "applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proctoring_sessions_candidate_id_fkey"
+            columns: ["candidate_id"]
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proctoring_sessions_interview_id_fkey"
+            columns: ["interview_id"]
+            referencedRelation: "interviews"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       users: {
         Row: {

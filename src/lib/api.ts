@@ -11,6 +11,7 @@ import type {
   InterviewRow,
   JobRow,
   OrganizationRow,
+  ProctoringSessionRow,
   UserRow,
 } from "./types";
 
@@ -176,10 +177,11 @@ export async function fetchJobPipeline(jobId: string): Promise<CandidateWithAppl
       fetchLatestEvaluation(app.id, "ats"),
       fetchLatestEvaluation(app.id, "interview"),
       fetchLatestInterview(app.id),
+      fetchLatestProctoring(app.id),
       fetchLatestDecision(app.id),
     ]);
     if (candidate) {
-      rows.push({ application: app, candidate, job, ats, interview, interview_row: interviewRow, decision });
+      rows.push({ application: app, candidate, job, ats, interview, interview_row: interviewRow, proctoring, decision });
     }
   }
   return rows;
@@ -328,11 +330,12 @@ export async function fetchMyApplications(candidateId: string): Promise<Candidat
       fetchLatestEvaluation(app.id, "ats"),
       fetchLatestEvaluation(app.id, "interview"),
       fetchLatestInterview(app.id),
+      fetchLatestProctoring(app.id),
       fetchLatestDecision(app.id),
       fetchJob(app.job_id),
     ]);
     if (candidate && job) {
-      rows.push({ application: app, candidate, job, ats, interview, interview_row: interviewRow, decision });
+      rows.push({ application: app, candidate, job, ats, interview, interview_row: interviewRow, proctoring, decision });
     }
   }
   return rows;
@@ -465,13 +468,26 @@ export async function interviewAnswer(
   return data as InterviewStepResult;
 }
 
-export async function hrRecommend(jobId: string): Promise<HrRecommendation> {
-  const { data, error } = await supabase.functions.invoke("hr-recommend", {
+export async function hrRecommend(jobId: string): Promise<HrRecommendation> {  const { data, error } = await supabase.functions.invoke("hr-recommend", {
     body: { job_id: jobId },
   });
   if (error) throw await functionError(error);
   if (data && data.ok === false) throw new Error(data.error || "Recommendation failed");
   return data as HrRecommendation;
+}
+
+export async function fetchLatestProctoring(
+  interviewId: string
+): Promise<ProctoringSessionRow | null> {
+  const { data, error } = await supabase
+    .from("proctoring_sessions")
+    .select("*")
+    .eq("interview_id", interviewId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(errorMessage(error));
+  return data;
 }
 
 // ---------------------------------------------------------------------------
@@ -528,11 +544,12 @@ export async function fetchOrgCandidates(orgId: string): Promise<CandidateWithAp
       fetchLatestEvaluation(app.id, "ats"),
       fetchLatestEvaluation(app.id, "interview"),
       fetchLatestInterview(app.id),
+      fetchLatestProctoring(app.id),
       fetchLatestDecision(app.id),
       fetchJob(app.job_id),
     ]);
     if (candidate && job) {
-      rows.push({ application: app, candidate, job, ats, interview, interview_row: interviewRow, decision });
+      rows.push({ application: app, candidate, job, ats, interview, interview_row: interviewRow, proctoring, decision });
     }
   }
   return rows;
@@ -586,4 +603,84 @@ export async function fetchLatestDecision(applicationId: string): Promise<Decisi
     .maybeSingle();
   if (error) throw new Error(errorMessage(error));
   return data;
+}
+
+// ---------------------------------------------------------------------------
+// Proctoring (interview integrity)
+// ---------------------------------------------------------------------------
+export interface ProctoringPolicy {
+  violation_policy: "terminate_immediately" | "warn_then_terminate";
+  warning_allowance: number;
+  grace_period_ms: number;
+}
+
+export interface ProctoringStartResult {
+  ok: boolean;
+  enabled: boolean;
+  session_id?: string;
+  token?: string;
+  policy?: ProctoringPolicy;
+  locked?: boolean;
+  status?: string;
+  error?: string;
+}
+
+export interface ProctoringHeartbeatResult {
+  ok?: boolean;
+  locked?: boolean;
+  status?: string;
+  error?: string;
+}
+
+export interface ProctoringTerminateResult {
+  ok: boolean;
+  outcome?: string;
+  reason_code?: string;
+  reason_detail?: string;
+  answered_questions?: number;
+  terminated_at?: string;
+  locked?: boolean;
+  status?: string;
+  error?: string;
+}
+
+export async function proctoringStart(interviewId: string): Promise<ProctoringStartResult> {
+  const { data, error } = await supabase.functions.invoke("proctoring-start", {
+    body: { interview_id: interviewId },
+  });
+  if (error) throw await functionError(error);
+  return data as ProctoringStartResult;
+}
+
+export async function proctoringHeartbeat(token: string): Promise<ProctoringHeartbeatResult> {
+  const { data, error } = await supabase.functions.invoke("proctoring-heartbeat", {
+    body: { token },
+  });
+  if (error) throw await functionError(error);
+  return data as ProctoringHeartbeatResult;
+}
+
+export async function proctoringTerminate(payload: {
+  token: string;
+  violation_type: string;
+  timestamp?: string;
+  elapsed_ms?: number;
+  question_index?: number;
+  detail?: Record<string, unknown>;
+}): Promise<ProctoringTerminateResult> {
+  const { data, error } = await supabase.functions.invoke("proctoring-terminate", {
+    body: payload,
+  });
+  if (error) throw await functionError(error);
+  return data as ProctoringTerminateResult;
+}
+
+export async function proctoringLogEvent(
+  token: string,
+  eventType: string,
+  detail?: unknown
+): Promise<void> {
+  await supabase.functions.invoke("proctoring-event", {
+    body: { token, event_type: eventType, detail },
+  });
 }

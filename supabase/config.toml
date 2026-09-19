@@ -1,1 +1,7 @@
 project_id = "spb-t4nlgi9m10386kt6"
+
+# proctoring-terminate must accept unsigned requests so that
+# navigator.sendBeacon() can deliver a termination while a tab is closing.
+# The server-generated session token is the credential for this endpoint.
+[functions.proctoring-terminate]
+verify_jwt = false

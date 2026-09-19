@@ -226,6 +226,22 @@ Deno.serve(async (req) => {
     const isHr = caller.data.role === "hr" && jobOrg.data && jobOrg.data.organization_id === caller.data.organization_id;
     if (!isCandidate && !isHr) throw new Error("Unauthorized");
 
+    // Proctoring lock: answers are rejected once the session is not ACTIVE.
+    let procSession: { status: string } | null = null;
+    if (interview_id) {
+      const res = await supabase
+        .from("proctoring_sessions")
+        .select("status")
+        .eq("interview_id", interview_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      procSession = res.data as { status: string } | null;
+    }
+    if (procSession && procSession.status !== "ACTIVE") {
+      throw new Error("This interview session has been locked by the proctoring system.");
+    }
+
     const { data: job, error: jobErr } = await supabase
       .from("jobs")
       .select("title, description, required_skills, ai_analysis")
@@ -462,6 +478,13 @@ Deno.serve(async (req) => {
       })
       .eq("id", interview.id);
     if (doneErr) throw doneErr;
+
+    // Normal completion closes the proctoring session.
+    await supabase
+      .from("proctoring_sessions")
+      .update({ status: "COMPLETED", question_index: answeredCount })
+      .eq("interview_id", interview.id)
+      .eq("status", "ACTIVE");
 
     const { error: appDoneErr } = await supabase
       .from("applications")

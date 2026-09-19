@@ -131,7 +131,26 @@ export interface CandidateWithApplication {
   ats: EvaluationRow | null;
   interview: EvaluationRow | null;
   interview_row: InterviewRow | null;
+  proctoring: ProctoringSessionRow | null;
   decision: DecisionRow | null;
+}
+
+export interface ProctoringSessionRow {
+  id: string;
+  interview_id: string;
+  application_id: string;
+  candidate_id: string;
+  status: "ACTIVE" | "ABANDONED" | "TERMINATED_INTEGRITY_VIOLATION" | "COMPLETED";
+  token: string;
+  started_at: string;
+  last_heartbeat_at: string;
+  heartbeat_count: number;
+  question_index: number | null;
+  elapsed_ms: number | null;
+  violation_type: string | null;
+  violation_detail: Record<string, unknown> | null;
+  terminated_at: string | null;
+  created_at: string;
 }
 
 export interface InterviewWithDetails {

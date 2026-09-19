@@ -13,6 +13,8 @@ import type {
   OrganizationRow,
   ProctoringSessionRow,
   UserRow,
+  VerificationClaimRow,
+  VerificationRow,
 } from "./types";
 
 export const RESUMES_BUCKET = "resumes";
@@ -172,16 +174,17 @@ export async function fetchJobPipeline(jobId: string): Promise<CandidateWithAppl
 
   const rows: CandidateWithApplication[] = [];
   for (const app of (apps || []) as ApplicationRow[]) {
-    const [candidate, ats, interview, interviewRow, decision] = await Promise.all([
+    const [candidate, ats, interview, interviewRow, decision, verification] = await Promise.all([
       fetchCandidate(app.candidate_id),
       fetchLatestEvaluation(app.id, "ats"),
       fetchLatestEvaluation(app.id, "interview"),
       fetchLatestInterview(app.id),
       fetchLatestProctoring(app.id),
       fetchLatestDecision(app.id),
+      fetchVerification(app.id),
     ]);
     if (candidate) {
-      rows.push({ application: app, candidate, job, ats, interview, interview_row: interviewRow, proctoring, decision });
+      rows.push({ application: app, candidate, job, ats, interview, interview_row: interviewRow, proctoring, decision, verification });
     }
   }
   return rows;
@@ -325,7 +328,7 @@ export async function fetchMyApplications(candidateId: string): Promise<Candidat
 
   const rows: CandidateWithApplication[] = [];
   for (const app of (apps || []) as ApplicationRow[]) {
-    const [candidate, ats, interview, interviewRow, decision, job] = await Promise.all([
+    const [candidate, ats, interview, interviewRow, decision, job, verification] = await Promise.all([
       fetchCandidate(app.candidate_id),
       fetchLatestEvaluation(app.id, "ats"),
       fetchLatestEvaluation(app.id, "interview"),
@@ -333,9 +336,10 @@ export async function fetchMyApplications(candidateId: string): Promise<Candidat
       fetchLatestProctoring(app.id),
       fetchLatestDecision(app.id),
       fetchJob(app.job_id),
+      fetchVerification(app.id),
     ]);
     if (candidate && job) {
-      rows.push({ application: app, candidate, job, ats, interview, interview_row: interviewRow, proctoring, decision });
+      rows.push({ application: app, candidate, job, ats, interview, interview_row: interviewRow, proctoring, decision, verification });
     }
   }
   return rows;
@@ -539,7 +543,7 @@ export async function fetchOrgCandidates(orgId: string): Promise<CandidateWithAp
 
   const rows: CandidateWithApplication[] = [];
   for (const app of (apps || []) as ApplicationRow[]) {
-    const [candidate, ats, interview, interviewRow, decision, job] = await Promise.all([
+    const [candidate, ats, interview, interviewRow, decision, job, verification] = await Promise.all([
       fetchCandidate(app.candidate_id),
       fetchLatestEvaluation(app.id, "ats"),
       fetchLatestEvaluation(app.id, "interview"),
@@ -547,9 +551,10 @@ export async function fetchOrgCandidates(orgId: string): Promise<CandidateWithAp
       fetchLatestProctoring(app.id),
       fetchLatestDecision(app.id),
       fetchJob(app.job_id),
+      fetchVerification(app.id),
     ]);
     if (candidate && job) {
-      rows.push({ application: app, candidate, job, ats, interview, interview_row: interviewRow, proctoring, decision });
+      rows.push({ application: app, candidate, job, ats, interview, interview_row: interviewRow, proctoring, decision, verification });
     }
   }
   return rows;
@@ -683,4 +688,66 @@ export async function proctoringLogEvent(
   await supabase.functions.invoke("proctoring-event", {
     body: { token, event_type: eventType, detail },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Resume verification (post-ATS credibility stage)
+// ---------------------------------------------------------------------------
+export async function fetchVerification(applicationId: string): Promise<VerificationRow | null> {
+  const { data, error } = await supabase
+    .from("resume_verifications")
+    .select("*")
+    .eq("application_id", applicationId)
+    .maybeSingle();
+  if (error) throw new Error(errorMessage(error));
+  return data;
+}
+
+export async function fetchVerificationClaims(verificationId: string): Promise<VerificationClaimRow[]> {
+  const { data, error } = await supabase
+    .from("verification_claims")
+    .select("*")
+    .eq("verification_id", verificationId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(errorMessage(error));
+  return (data || []) as VerificationClaimRow[];
+}
+
+export async function verifyStart(
+  applicationId: string,
+  consent: boolean,
+  opts?: { github_username?: string; linkedin_url?: string }
+): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.functions.invoke("verify-start", {
+    body: {
+      application_id: applicationId,
+      consent,
+      github_username: opts?.github_username || null,
+      linkedin_url: opts?.linkedin_url || null,
+    },
+  });
+  if (error) throw await functionError(error);
+  if (data && data.ok === false) throw new Error(data.error || "Verification consent failed");
+  return data;
+}
+
+export async function verifyRun(applicationId: string): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.functions.invoke("verify-run", {
+    body: { application_id: applicationId },
+  });
+  if (error) throw await functionError(error);
+  if (data && data.ok === false) throw new Error(data.error || "Verification failed");
+  return data;
+}
+
+export async function verifyExplain(
+  verificationId: string,
+  explanations: { claim_id: string; explanation: string }[]
+): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.functions.invoke("verify-explain", {
+    body: { verification_id: verificationId, explanations },
+  });
+  if (error) throw await functionError(error);
+  if (data && data.ok === false) throw new Error(data.error || "Failed to save explanation");
+  return data;
 }

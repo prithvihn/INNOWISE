@@ -133,6 +133,7 @@ export interface CandidateWithApplication {
   interview_row: InterviewRow | null;
   proctoring: ProctoringSessionRow | null;
   decision: DecisionRow | null;
+  verification: VerificationRow | null;
 }
 
 export interface ProctoringSessionRow {
@@ -171,4 +172,74 @@ export interface HrRecommendation {
   }[];
   recommended_candidate_id: string | null;
   summary: string;
+}
+
+// ---------------------------------------------------------------------------
+// Resume verification (post-ATS credibility stage)
+// ---------------------------------------------------------------------------
+export type VerificationStatus =
+  | "consent_needed"
+  | "consent_given"
+  | "analyzing"
+  | "ready"
+  | "declined";
+
+export type VerificationVerdict =
+  | "VERIFIED"
+  | "PARTIALLY_VERIFIED"
+  | "UNVERIFIED"
+  | "CONTRADICTED"
+  | "UNVERIFIABLE";
+
+export type CredibilityBand = "high" | "medium" | "low" | "unknown";
+
+export interface RecruiterBrief {
+  summary: string;
+  coverage: string;
+  strengths: string[];
+  flags: { claim: string; issue: string; sources: string[] }[];
+  interview_suggestions: string[];
+}
+
+export interface VerificationRow {
+  id: string;
+  application_id: string;
+  candidate_id: string;
+  job_id: string;
+  status: VerificationStatus;
+  opted_in: boolean;
+  github_username: string | null;
+  linkedin_url: string | null;
+  sources_available: string[];
+  credibility_band: CredibilityBand | null;
+  report: {
+    claim_counts?: Record<string, number>;
+    total_claims?: number;
+    credibility_band?: string;
+    sources_used?: string[];
+    linkedin_self_reported?: boolean;
+    rate_limited?: boolean;
+    generated_at?: string;
+  } | null;
+  recruiter_brief: RecruiterBrief | null;
+  candidate_explanations: Record<string, string>;
+  run_count: number;
+  last_run_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VerificationClaimRow {
+  id: string;
+  verification_id: string;
+  application_id: string;
+  claim_text: string;
+  claim_type: string;
+  verdict: VerificationVerdict;
+  confidence: "high" | "medium" | "low";
+  rationale: string | null;
+  evidence: { source: string }[] | null;
+  explanation: string | null;
+  explanation_status: "not_requested" | "requested" | "submitted";
+  created_at: string;
 }

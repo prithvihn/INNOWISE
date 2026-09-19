@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/useAuth";
 import { useData } from "@/lib/useData";
 import { fetchMyApplications } from "@/lib/api";
+import { VerificationCard } from "@/components/verification/VerificationCard";
 import {
   APPLICATION_STATUS_LABELS,
   ATS_STATUS_LABELS,
@@ -238,6 +239,11 @@ function ApplicationCard({ applicationId }: { applicationId: string }) {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Resume verification (post-ATS, optional) */}
+        {application.ats_status === "done" && !decision && (
+          <VerificationCard applicationId={application.id} />
         )}
 
         {/* Interview */}

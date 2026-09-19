@@ -3800,6 +3800,85 @@ export type Database = {
           },
         ]
       }
+      resume_verifications: {
+        Row: {
+          application_id: string
+          candidate_explanations: Json
+          candidate_id: string
+          created_at: string
+          credibility_band: string | null
+          github_username: string | null
+          id: string
+          job_id: string
+          last_run_at: string | null
+          linkedin_url: string | null
+          opted_in: boolean
+          recruiter_brief: Json | null
+          report: Json | null
+          run_count: number
+          sources_available: Json
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          application_id: string
+          candidate_explanations?: Json
+          candidate_id: string
+          created_at?: string
+          credibility_band?: string | null
+          github_username?: string | null
+          id?: string
+          job_id: string
+          last_run_at?: string | null
+          linkedin_url?: string | null
+          opted_in?: boolean
+          recruiter_brief?: Json | null
+          report?: Json | null
+          run_count?: number
+          sources_available?: Json
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          application_id?: string
+          candidate_explanations?: Json
+          candidate_id?: string
+          created_at?: string
+          credibility_band?: string | null
+          github_username?: string | null
+          id?: string
+          job_id?: string
+          last_run_at?: string | null
+          linkedin_url?: string | null
+          opted_in?: boolean
+          recruiter_brief?: Json | null
+          report?: Json | null
+          run_count?: number
+          sources_available?: Json
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "resume_verifications_application_id_fkey"
+            columns: ["application_id"]
+            referencedRelation: "applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "resume_verifications_candidate_id_fkey"
+            columns: ["candidate_id"]
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "resume_verifications_job_id_fkey"
+            columns: ["job_id"]
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       users: {
         Row: {
           created_at: string
@@ -3830,6 +3909,150 @@ export type Database = {
             foreignKeyName: "users_organization_id_fkey"
             columns: ["organization_id"]
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      verification_artifacts: {
+        Row: {
+          application_id: string
+          claim_id: string | null
+          content: string | null
+          created_at: string
+          fetched_at: string | null
+          id: string
+          source: string
+          source_label: string | null
+          source_url: string | null
+          status: string
+          verification_id: string
+        }
+        Insert: {
+          application_id: string
+          claim_id?: string | null
+          content?: string | null
+          created_at?: string
+          fetched_at?: string | null
+          id?: string
+          source: string
+          source_label?: string | null
+          source_url?: string | null
+          status?: string
+          verification_id: string
+        }
+        Update: {
+          application_id?: string
+          claim_id?: string | null
+          content?: string | null
+          created_at?: string
+          fetched_at?: string | null
+          id?: string
+          source?: string
+          source_label?: string | null
+          source_url?: string | null
+          status?: string
+          verification_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "verification_artifacts_claim_id_fkey"
+            columns: ["claim_id"]
+            referencedRelation: "verification_claims"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "verification_artifacts_verification_id_fkey"
+            columns: ["verification_id"]
+            referencedRelation: "resume_verifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      verification_claims: {
+        Row: {
+          application_id: string
+          claim_text: string
+          claim_type: string
+          confidence: string
+          created_at: string
+          evidence: Json
+          explanation: string | null
+          explanation_status: string
+          id: string
+          rationale: string | null
+          verdict: string
+          verification_id: string
+        }
+        Insert: {
+          application_id: string
+          claim_text: string
+          claim_type?: string
+          confidence?: string
+          created_at?: string
+          evidence?: Json
+          explanation?: string | null
+          explanation_status?: string
+          id?: string
+          rationale?: string | null
+          verdict: string
+          verification_id: string
+        }
+        Update: {
+          application_id?: string
+          claim_text?: string
+          claim_type?: string
+          confidence?: string
+          created_at?: string
+          evidence?: Json
+          explanation?: string | null
+          explanation_status?: string
+          id?: string
+          rationale?: string | null
+          verdict?: string
+          verification_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "verification_claims_verification_id_fkey"
+            columns: ["verification_id"]
+            referencedRelation: "resume_verifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      verification_events: {
+        Row: {
+          actor_user_id: string | null
+          application_id: string
+          created_at: string
+          detail: Json | null
+          event_type: string
+          id: string
+          verification_id: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          application_id: string
+          created_at?: string
+          detail?: Json | null
+          event_type: string
+          id?: string
+          verification_id: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          application_id?: string
+          created_at?: string
+          detail?: Json | null
+          event_type?: string
+          id?: string
+          verification_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "verification_events_verification_id_fkey"
+            columns: ["verification_id"]
+            referencedRelation: "resume_verifications"
             referencedColumns: ["id"]
           },
         ]

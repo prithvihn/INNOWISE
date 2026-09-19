@@ -47,3 +47,26 @@ export function interviewResultLabel(result: string | null | undefined): string 
   if (result === "no") return "Not recommended";
   return "Consider";
 }
+
+export const VERIFICATION_STATUS_LABELS: Record<string, string> = {
+  consent_needed: "Not started",
+  consent_given: "Ready to verify",
+  analyzing: "Analyzing…",
+  ready: "Completed",
+  declined: "Declined",
+};
+
+export const VERDICT_LABELS: Record<string, string> = {
+  VERIFIED: "Verified",
+  PARTIALLY_VERIFIED: "Partially verified",
+  UNVERIFIED: "Unverified",
+  CONTRADICTED: "Contradicted",
+  UNVERIFIABLE: "Not verifiable",
+};
+
+export const CREDIBILITY_BAND_LABELS: Record<string, string> = {
+  high: "High credibility",
+  medium: "Medium credibility",
+  low: "Low credibility",
+  unknown: "Not assessed",
+};

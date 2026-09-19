@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   BrainCircuit,
+  FileSearch,
   ShieldAlert,
   Loader2,
   MessagesSquare,
@@ -44,8 +45,9 @@ import {
   setApplicationStatus,
 } from "@/lib/api";
 import type { CandidateWithApplication, DecisionValue, HrRecommendation } from "@/lib/types";
-import { APPLICATION_STATUS_LABELS, scoreColor } from "@/lib/status";
+import { APPLICATION_STATUS_LABELS, scoreColor, VERIFICATION_STATUS_LABELS, CREDIBILITY_BAND_LABELS } from "@/lib/status";
 import { StatusBadge } from "@/components/status";
+import { VerificationReportDialog } from "@/components/verification/VerificationReportDialog";
 
 function ScoreBar({ score }: { score: number | null }) {
   const value = score ?? 0;
@@ -247,6 +249,18 @@ function CandidateRowView({
     entry.application.status === "interview_in_progress" ||
     entry.application.status === "interview_done";
   const decided = entry.application.status === "decided";
+  const [verificationOpen, setVerificationOpen] = useState(false);
+
+  const verification = entry.verification;
+  const flagsCount = verification?.recruiter_brief?.flags?.length ?? 0;
+  const bandStyle =
+    verification?.credibility_band === "high"
+      ? "border-success/40 bg-success/10 text-success"
+      : verification?.credibility_band === "medium"
+        ? "border-primary/40 bg-primary/10 text-primary"
+        : verification?.credibility_band === "low"
+          ? "border-destructive/40 bg-destructive/10 text-destructive"
+          : "border-muted bg-muted/40 text-muted-foreground";
 
   return (
     <Card>
@@ -351,6 +365,64 @@ function CandidateRowView({
               </p>
             </div>
           )}
+
+        {/* Resume verification (post-ATS credibility check) */}
+        {verification && (
+          <div className="mt-4 rounded-lg border p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                <FileSearch className="h-4 w-4 text-primary" /> Resume verification
+              </span>
+              <StatusBadge
+                status={verification.status}
+                label={VERIFICATION_STATUS_LABELS[verification.status] ?? verification.status}
+              />
+              {verification.status === "ready" && verification.credibility_band && (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${bandStyle}`}
+                >
+                  {CREDIBILITY_BAND_LABELS[verification.credibility_band] ?? verification.credibility_band}
+                </span>
+              )}
+            </div>
+
+            {verification.status === "ready" && (
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground">
+                  {verification.report?.total_claims ?? 0} claims checked
+                  {flagsCount > 0
+                    ? ` · ${flagsCount} flagged claim${flagsCount === 1 ? "" : "s"} — review before deciding`
+                    : " · no contradictions found"}
+                  {verification.report?.rate_limited ? " · GitHub rate limit affected coverage" : ""}
+                </p>
+                <Button size="sm" variant="outline" onClick={() => setVerificationOpen(true)}>
+                  <FileSearch className="h-4 w-4" /> View report
+                </Button>
+              </div>
+            )}
+            {verification.status === "declined" && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Candidate declined this optional check. Not a signal against them.
+              </p>
+            )}
+            {verification.status === "consent_needed" && (
+              <p className="mt-2 text-xs text-muted-foreground">Candidate has not been offered verification yet.</p>
+            )}
+            {(verification.status === "consent_given" || verification.status === "analyzing") && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {verification.status === "analyzing" ? "Verification is running…" : "Candidate consented; verification pending."}
+              </p>
+            )}
+
+            {verification.status === "ready" && (
+              <VerificationReportDialog
+                verification={verification}
+                open={verificationOpen}
+                onOpenChange={setVerificationOpen}
+              />
+            )}
+          </div>
+        )}
 
         <div className="mt-4 flex flex-wrap gap-2">
           {!invited && !decided && (

@@ -238,6 +238,7 @@ const Index = () => {
             stagger: 0.14,
             ease: "power3.out",
             scrollTrigger: { trigger: s2Ref.current, start: "top 70%", once: true },
+            immediateRender: false,
           }
         );
         gsap.fromTo(
@@ -267,6 +268,7 @@ const Index = () => {
             stagger: 0.12,
             ease: "power3.out",
             scrollTrigger: { trigger: cardsRef.current, start: "top 78%", once: true },
+            immediateRender: false,
           }
         );
       }
@@ -282,6 +284,7 @@ const Index = () => {
             duration: 0.7,
             ease: "power3.out",
             scrollTrigger: { trigger: ctaRef.current, start: "top 80%", once: true },
+            immediateRender: false,
           }
         );
       }

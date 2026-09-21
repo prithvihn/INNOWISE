@@ -1,5 +1,10 @@
 # INNOWISE — AI-Powered HR Workforce Management
 
+<p align="center">
+  <a href="https://d24d7797e19e4ea593e540ec0666b2c5.prod.enterapp.pro" target="_blank">
+    <img src="https://img.shields.io/badge/🚀%20Live%20Demo-Visit%20Project-2ea44f?style=for-the-badge" alt="Live Demo">
+  </a>
+</p>
 **"AI recommends. You decide."**
 
 INNOWISE is a minimal, fully working AI HR platform. A recruiter creates a job, and the AI handles the
